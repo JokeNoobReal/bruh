@@ -35,7 +35,7 @@ jobs:
           done
 
       - name: Verify module imports
-        run: node --input-type=module -e "import('./services/glossary.js'); import('./services/scraper.js'); import('./services/auth.js'); import('./services/ai.js')"
+        run: node --input-type=module -e "import('./services/glossary.js'); import('./services/scraper.js'); import('./services/auth.js'); import('./services/ai.js'); import('./services/ocr-worker.js'); import('./services/prompt-guard.js'); import('./services/security.js')"
 
       - name: Run tests
         run: npm test
@@ -50,4 +50,10 @@ jobs:
           python-version: '3.11'
 
       - name: Compile Python
-        run: python -m py_compile comic_translator.py
+        run: |
+          python -m py_compile comic_translator.py
+          python -m py_compile comic_worker.py
+          python -m py_compile prompt_guard.py
+
+      - name: Run security regression tests
+        run: node --test test/security-threats.test.js

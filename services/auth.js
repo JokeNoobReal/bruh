@@ -12,6 +12,7 @@ if (isProduction && !process.env.API_TOKEN) {
  * Middleware kiểm tra API Token
  */
 export function requireApiAuth(req, res, next) {
+  const isProduction = process.env.NODE_ENV === 'production';
   const configuredToken = process.env.API_TOKEN;
 
   // Nếu không cấu hình API_TOKEN
@@ -28,7 +29,8 @@ export function requireApiAuth(req, res, next) {
   const tokenFromQuery = req.query.token;
   const tokenFromBody = req.body?.token;
 
-  const providedToken = tokenFromHeader || tokenFromQuery || tokenFromBody;
+  // Never accept credentials in query/body during production
+  const providedToken = isProduction ? tokenFromHeader : (tokenFromHeader || tokenFromQuery || tokenFromBody);
 
   if (!providedToken || providedToken !== configuredToken) {
     return res.status(401).json({

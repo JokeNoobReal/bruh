@@ -14,7 +14,7 @@ export function validateUrlSsrf(inputUrl) {
       throw new Error(`Giao thức không hợp lệ: ${parsed.protocol}. Chỉ chấp nhận http hoặc https.`);
     }
 
-    const hostname = parsed.hostname.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
     // Chặn hostname nội bộ
     if (
@@ -54,11 +54,41 @@ export function validateUrlSsrf(inputUrl) {
   }
 }
 
+import dns from 'dns/promises';
+import net from 'net';
+
+export function isPrivateAddress(address) {
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
+      (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+  }
+  return address === '::1' || address.startsWith('fc') || address.startsWith('fd') || address.startsWith('fe80:');
+}
+
+export async function validateResolvedHost(inputUrl) {
+  const safe = validateUrlSsrf(inputUrl);
+  const host = new URL(safe).hostname;
+  if (net.isIP(host)) {
+    if (isPrivateAddress(host)) throw new Error(`SSRF blocked private IP: ${host}`);
+    return safe;
+  }
+  try {
+    const records = await dns.lookup(host, { all: true, verbatim: true });
+    for (const { address } of records) {
+      if (isPrivateAddress(address)) throw new Error(`SSRF blocked after DNS resolution: ${address}`);
+    }
+  } catch (e) {
+    if (e.message.includes('SSRF blocked')) throw e;
+  }
+  return safe;
+}
+
 /**
  * Cào nội dung văn bản truyện từ 1 URL công khai
  */
 export async function fetchTextFromUrl(url) {
-  const safeUrl = validateUrlSsrf(url);
+  const safeUrl = await validateResolvedHost(url);
   try {
     const { data } = await axios.get(safeUrl, {
       headers: {
@@ -66,7 +96,7 @@ export async function fetchTextFromUrl(url) {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
       },
       timeout: 15000,
-      maxRedirects: 5
+      maxRedirects: 0
     });
 
     const $ = cheerio.load(data);

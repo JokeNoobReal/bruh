@@ -15,6 +15,9 @@ import { requireApiAuth, configureCors } from './services/auth.js';
 import { startAutoCleanupCron } from './services/cleanup.js';
 import { ocrWorker, warmupOcrWorker } from './services/ocr-worker.js';
 
+import { assertPromptBudget, buildTranslationMessages, buildReviewMessages } from './services/prompt-guard.js';
+import { budgetMiddleware, validateUploadBytes } from './services/security.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -25,6 +28,7 @@ app.use(express.json({ limit: '50mb' }));
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Quá nhiều request. Vui lòng chờ 1 phút.' } });
 app.use('/api/', limiter);
 app.use('/api/', requireApiAuth);
+app.use('/api/translate-stream', budgetMiddleware);
 app.use('/api/glossary', glossaryRoutes);
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -41,12 +45,20 @@ warmupOcrWorker();
 // Cấu hình thư mục nhận ảnh truyện tranh
 const upload = multer({
   dest: 'uploads/',
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 8, fields: 20 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
     else cb(new Error('Chỉ chấp nhận file ảnh!'), false);
   }
 });
+
+// Validate magic bytes and dimensions after multer writes the temporary file.
+async function validateUploadedFiles(files = []) {
+  for (const file of files) {
+    const bytes = await fs.promises.readFile(file.path);
+    validateUploadBytes(bytes, file.mimetype);
+  }
+}
 
 // Ngăn server bị văng (crash) khi có lỗi không lường trước
 process.on('uncaughtException', (err) => console.error("❌ Lỗi hệ thống:", err.message));
@@ -159,10 +171,15 @@ app.post('/api/translate-stream', async (req, res) => {
 
   try {
     await G.withLock(seriesId, async () => {
-      sendStatus('⏳ Đang cào dữ liệu từ các link...');
+      sendStatus('📡 Đang cào dữ liệu...');
       const [sampleEnCombined, sampleViCombined, newEnText] = await Promise.all([
-        fetchMultipleUrls(urlsSampleEn), fetchMultipleUrls(urlsSampleVi), fetchTextFromUrl(urlNewEn)
+        fetchMultipleUrls(urlsSampleEn),
+        fetchMultipleUrls(urlsSampleVi),
+        fetchTextFromUrl(urlNewEn)
       ]);
+
+      // Guard prompt budget before calling AI models
+      assertPromptBudget({ source: newEnText, samplesEn: sampleEnCombined, samplesVi: sampleViCombined, notes: userInstructions });
 
       if (!newEnText || newEnText.length < 100) {
         sendStatus('❌ Không cào được nội dung chương mới. Kiểm tra lại link!');
@@ -798,7 +815,13 @@ app.post('/api/translate-comic', upload.single('image'), async (req, res) => {
   const lang = allowedLangs.includes(sourceLang) ? sourceLang : 'en';
 
   if (req.file) {
-    imagesToProcess.push({ pageIndex: 1, path: req.file.path });
+    try {
+      await validateUploadedFiles([req.file]);
+      imagesToProcess.push({ pageIndex: 1, path: req.file.path });
+    } catch (valErr) {
+      sendEvent('error', `File ảnh không hợp lệ: ${valErr.message}`);
+      return res.end();
+    }
   } else if (req.body.imageUrl) {
     try {
       sendEvent('status', '📡 Đang kết nối bóc tách danh sách trang của Chapter...');
