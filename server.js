@@ -220,41 +220,20 @@ app.post('/api/translate-stream', async (req, res) => {
       // ==========================================
       sendStatus('📚 GIAI ĐOẠN 1/5: Chuẩn bị & Nghiên cứu...');
       sendNewBox(`📚 GĐ 1: Chuẩn bị & Nghiên cứu (${MODEL_REVIEW})`, "color-gd1");
-      
+
+      const stage1Messages = buildTranslationMessages({
+        source: newEnText,
+        samplesEn: sampleEnCombined,
+        samplesVi: sampleViCombined,
+        notes: userInstructions,
+        glossary: glossaryBlock,
+        chunkLabel: 'stage1_preparation_source'
+      });
+      stage1Messages[0].content += '\nAnalyze author style, tone, and character honorifics to build an editorial guide.';
+
       const styleGuide = await streamAIWithRotation(
         MODEL_REVIEW,
-        [
-          { 
-            role: "system", 
-            content: `Bạn là Tổng Biên Tập & Chuyên gia Ngôn ngữ học.
-Nhiệm vụ: Đọc toàn bộ [BẢN MẪU ANH] và [BẢN MẪU VIỆT], phân tích phong cách tác giả, bối cảnh và lập TÀI LIỆU CHUẨN BỊ DỊCH theo format sau:
-
-═══ 📋 BẢNG THUẬT NGỮ & TÊN RIÊNG ═══
-| Tiếng Anh | Tiếng Việt | Ghi chú |
-(Liệt kê tất cả tên nhân vật, địa danh, thuật ngữ đặc biệt)
-
-═══ 💬 BẢNG XƯNG HÔ NHÂN VẬT ═══
-| Nhân vật A → B | Xưng hô | Lý do |
-(Liệt kê cách từng cặp nhân vật xưng hô với nhau)
-
-═══ 🎭 PHONG CÁCH & GIỌNG VĂN ═══
-- Giọng người kể chuyện: (deadpan, hài hước, nghiêm túc, mỉa mai...)
-- Sắc thái cảm xúc chủ đạo:
-- Cách ngắt câu đặc trưng:
-
-═══ 📐 CHIẾN LƯỢC DỊCH ═══
-- Phương pháp: (sát nghĩa / thoát ý / kết hợp)
-- Yếu tố văn hóa: (giữ nguyên / bản địa hóa)
-- Lưu ý đặc biệt từ bản mẫu Việt:
-
-═══ 📝 CHỈ ĐẠO TỪ NGƯỜI DÙNG ═══
-(Tổng hợp và nhấn mạnh các yêu cầu đặc biệt)` 
-          },
-          { 
-            role: "user", 
-            content: `${glossaryBlock ? `${glossaryBlock}\n\n` : ''}=== BẢN MẪU ANH ===\n${sampleEnCombined}\n\n=== BẢN MẪU VIỆT ===\n${sampleViCombined}\n\n=== GÓP Ý BỔ SUNG CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có (Tự động phân tích theo bản mẫu)'}\n\n=== TÀI LIỆU CHUẨN BỊ DỊCH:` 
-          }
-        ],
+        stage1Messages,
         (chunk) => sendChunk(chunk),
         { temperature: 0.2, fallbackModel: MODEL_FALLBACK }
       );
@@ -296,15 +275,22 @@ LỆNH BẮT BUỘC:
 5. Tuân thủ BẢNG THUẬT NGỮ và BẢNG XƯNG HÔ từ Tài liệu Chuẩn bị.
 6. CHỈ TRẢ VỀ DUY NHẤT nội dung truyện đã dịch.`;
 
-        let titleChecked = !isSubsequentChunk;
-        let headerBuffer = "";
+        const stage2Messages = buildTranslationMessages({
+          source: enChunks[i],
+          samplesEn: sampleEnCombined,
+          samplesVi: sampleViCombined,
+          notes: userInstructions,
+          glossary: glossaryBlock,
+          styleGuide,
+          chunkLabel: `chapter_chunk_${i + 1}`
+        });
+        if (isSubsequentChunk) {
+          stage2Messages[0].content += `\nThis is continuation chunk ${i + 1}/${enChunks.length}. Do not repeat chapter title or introduction. Continue smoothly.`;
+        }
 
         const chunkText = await streamAIWithRotation(
           MODEL_TRANSLATE,
-          [
-            { role: "system", content: systemInstruction },
-            { role: "user", content: `${glossaryBlock ? `${glossaryBlock}\n\n` : ''}=== TÀI LIỆU CHUẨN BỊ DỊCH (GĐ 1) ===\n${styleGuide}\n\n${continuityBlock}=== GÓP Ý CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có'}\n\n=== CHƯƠNG MỚI (TIẾNG ANH - PHẦN ${i + 1}/${enChunks.length}) ===\n${enChunks[i]}\n\n=== BẢN DỊCH:` }
-          ],
+          stage2Messages,
           (content) => {
             if (isSubsequentChunk && !titleChecked) {
               headerBuffer += content;
@@ -366,30 +352,20 @@ LỆNH BẮT BUỘC:
             sendStatus(`🔍 GĐ 3: Đang biên tập & đối chiếu phần ${cIdx + 1}/${enChunks.length}...`);
           }
 
-          const editSystemPrompt = `Bạn là Biên Tập Viên Văn Học Chuyên Nghiệp.
-Nhiệm vụ: Đọc [BẢN DỊCH THÔ PHẦN ${cIdx + 1}/${enChunks.length}], đối chiếu từng câu với [VĂN BẢN GỐC TIẾNG ANH PHẦN ${cIdx + 1}/${enChunks.length}] và [TÀI LIỆU CHUẨN BỊ DỊCH].
-
-${glossaryBlock ? `${glossaryBlock}\n` : ''}
-${loopCount > 1 ? `⚠️ ĐÂY LÀ LẦN BIÊN TẬP THỨ ${loopCount}. Tham khảo [LỜI PHÊ BÌNH LẦN TRƯỚC] để sửa đúng trọng tâm.\n\n[LỜI PHÊ BÌNH LẦN TRƯỚC]:\n${previousCritique}\n` : ''}
-
-QUY TRÌNH BIÊN TẬP BẮT BUỘC:
-1. ĐỐI CHIẾU TỪNG ĐOẠN: So sánh bản dịch phần này với nguyên tác — không sót ý, không sai nghĩa.
-2. CHỈNH CÂU VĂN: Sửa các câu dịch bám sát cấu trúc Anh ngữ nghe gượng gạo → viết lại tự nhiên trong tiếng Việt.
-3. XỬ LÝ ĐOẠN KHÓ [⚠️]: Tìm các đoạn đánh dấu [⚠️] (thành ngữ, chơi chữ, yếu tố văn hóa) và xử lý kỹ, gỡ bỏ ký hiệu [⚠️] sau khi xử lý xong.
-4. NHẤT QUÁN: Đảm bảo tên riêng, thuật ngữ, xưng hô đồng nhất theo Bảng Thuật Ngữ & Bảng XƯNG HÔ.
-5. GIỮ NGUYÊN 100% NỘI DUNG PHẦN NÀY: KHÔNG tóm tắt, KHÔNG cắt xén, KHÔNG bịa thêm.
-${cIdx > 0 ? "6. KHÔNG lặp lại tiêu đề chương hoặc đoạn mở đầu đã biên tập ở phần trước." : ""}
-
-CHỈ TRẢ VỀ DUY NHẤT nội dung phần ${cIdx + 1} đã biên tập hoàn chỉnh (không giải thích, không giao tiếp).`;
+          const stage3Messages = buildReviewMessages({
+            source: enChunks[cIdx],
+            draft: currentDraftChunks[cIdx] || '',
+            glossary: glossaryBlock,
+            styleGuide,
+            critique: previousCritique
+          });
+          stage3Messages[0].content += `\nEditing chunk ${cIdx + 1}/${enChunks.length}. Preserve exact meaning, fix awkward sentences, and enforce glossary. Return only the edited text.`;
 
           let editedChunkText = "";
           try {
             editedChunkText = await streamAIWithRotation(
               MODEL_REVIEW,
-              [
-                { role: "system", content: editSystemPrompt },
-                { role: "user", content: `=== TÀI LIỆU CHUẨN BỊ DỊCH (GĐ 1) ===\n${styleGuide}\n\n=== GÓP Ý CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có'}\n\n=== VĂN BẢN GỐC TIẾNG ANH (PHẦN ${cIdx + 1}/${enChunks.length}) ===\n${enChunks[cIdx]}\n\n=== BẢN DỊCH THÔ (PHẦN ${cIdx + 1}/${enChunks.length}) ===\n${currentDraftChunks[cIdx] || ''}\n\n=== BẢN BIÊN TẬP HOÀN CHỈNH PHẦN ${cIdx + 1}:` }
-              ],
+              stage3Messages,
               (chunk) => sendChunk(chunk),
               { temperature: 0.2, fallbackModel: MODEL_FALLBACK }
             );
@@ -425,43 +401,20 @@ CHỈ TRẢ VỀ DUY NHẤT nội dung phần ${cIdx + 1} đã biên tập hoàn
         sendStatus(`✅ GIAI ĐOẠN 4/5: Hiệu đính & Đọc thử (Lần ${loopCount})...`);
         sendNewBox(`✅ GĐ 4: Hiệu đính & Đọc thử — Lần ${loopCount} (${MODEL_FALLBACK})`, "color-gd4");
 
-        const proofSystemPrompt = `Bạn là Hiệu Đính Viên & Người Đọc Thử Chuyên Nghiệp (Proofreader & Beta Reader).
-Bạn đang hiệu đính bản dịch đã qua biên tập.
-
-${loopCount > 1 ? `⚠️ ĐÂY LÀ LẦN HIỆU ĐÍNH THỨ ${loopCount}. Đối chiếu với lời phê bình lần trước để xem các lỗi đã được sửa chưa.
-Nếu các lỗi chính đã sửa xong → PHẢI TĂNG ĐIỂM. KHÔNG MÂU THUẪN VỚI CHÍNH MÌNH.` : ''}
-
-QUY TRÌNH HIỆU ĐÍNH:
-1. RÀ LỖI: Chính tả, ngữ pháp, dấu câu, định dạng.
-2. MẠCH TRUYỆN: Đọc liền mạch từ đầu đến cuối — có chỗ nào bị đứt gãy, nhảy ý không?
-3. ĐỘ TRÔI CHẢY: Đọc như người Việt đọc truyện — có chỗ nào nghe lạ tai, gượng gạo?
-4. NHẤT QUÁN: Xưng hô, tên riêng, thuật ngữ có thống nhất xuyên suốt?
-5. ĐỐI CHIẾU GỐC: Có đoạn nào bị dịch sót, dịch sai ý, hoặc bịa thêm không?
-
-BÁO CÁO THEO FORMAT:
-
-📊 ĐIỂM SỐ: X/10
-
-✅ ĐIỂM TỐT:
-- Liệt kê những điểm đã làm tốt.
-
-❌ LỖI CẦN SỬA (nếu có):
-- Trích câu sai → Gợi ý sửa cụ thể.
-
-🏷️ KẾT LUẬN: [DUYỆT] hoặc [CHƯA ĐẠT]
-
-QUY TẮC:
-- Điểm >= 8.5/10 và không có lỗi nghiêm trọng → [DUYỆT]
-- Điểm < 8.5/10 hoặc còn lỗi xưng hô, câu gượng, sót ý → [CHƯA ĐẠT]`;
+        const stage4Messages = buildReviewMessages({
+          source: newEnText,
+          draft: currentDraft,
+          glossary: glossaryBlock,
+          styleGuide,
+          critique: previousCritique
+        });
+        stage4Messages[0].content += '\nAct as proofreader and beta reader. Report score X/10 and verdict [DUYỆT] or [CHƯA ĐẠT].';
 
         let critique = "";
         try {
           critique = await streamAIWithRotation(
             MODEL_FALLBACK,
-            [
-              { role: "system", content: proofSystemPrompt },
-              { role: "user", content: `=== TÀI LIỆU CHUẨN BỊ DỊCH (GĐ 1) ===\n${styleGuide}\n\n=== GÓP Ý CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có'}\n\n=== VĂN BẢN GỐC (TIẾNG ANH) ===\n${newEnText}\n\n=== BẢN DỊCH ĐÃ BIÊN TẬP (CẦN HIỆU ĐÍNH) ===\n${currentDraft}\n\n${loopCount > 1 ? `=== LỜI PHÊ BÌNH LẦN TRƯỚC ===\n${previousCritique}\n\n` : ''}=== KẾT QUẢ HIỆU ĐÍNH LẦN ${loopCount}:` }
-            ],
+            stage4Messages,
             (chunk) => sendChunk(chunk),
             { temperature: 0.1, fallbackModel: MODEL_REVIEW }
           );

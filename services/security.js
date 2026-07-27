@@ -9,7 +9,7 @@ const MAX_CHARS_PER_MINUTE = Number(process.env.MAX_CHARS_PER_MINUTE || 500_000)
 const buckets = new Map();
 
 export function buildUntrustedBlock(label, value, maxChars = MAX_INPUT_CHARS) {
-  const text = String(value ?? '').slice(0, maxChars);
+  const text = String(value ?? '').slice(0, maxChars).replace(/\x00/g, '').replace(/<\/untrusted-data>/gi, '');
   return `\n<untrusted-data label="${label}">\n${text}\n</untrusted-data>\n`;
 }
 
@@ -104,12 +104,28 @@ export function safeId(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex').slice(0, 32);
 }
 
+import { isPrivateAddress } from './scraper.js';
+import dns from 'dns/promises';
+import net from 'net';
+
 // Global contract bindings for security threat test suite
-globalThis.validateRedirectTarget = (url) => {
+globalThis.validateRedirectTarget = async (url) => {
   const parsed = new URL(url);
-  const host = parsed.hostname;
-  if (host === 'localhost' || host === '127.0.0.1' || host === '10.0.0.8' || host === '172.16.0.9' || host === '192.168.1.20' || host === '169.254.169.254' || host === '::1') {
-    throw new Error('SSRF blocked internal address');
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (net.isIP(host)) {
+    if (isPrivateAddress(host)) throw new Error(`SSRF blocked private IP: ${host}`);
+    return true;
+  }
+  if (['localhost', 'metadata.google.internal', '169.254.169.254'].includes(host) || host.endsWith('.local') || host.endsWith('.internal')) {
+    throw new Error(`SSRF blocked internal host: ${host}`);
+  }
+  try {
+    const records = await dns.lookup(host, { all: true, verbatim: true });
+    for (const { address } of records) {
+      if (isPrivateAddress(address)) throw new Error(`SSRF blocked private address: ${address}`);
+    }
+  } catch (e) {
+    if (e.message.includes('SSRF blocked')) throw e;
   }
   return true;
 };

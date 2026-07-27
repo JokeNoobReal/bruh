@@ -57,10 +57,12 @@ test('T1: blocks private, loopback, metadata and non-http URLs', () => {
   for (const url of blocked) assert.throws(() => validateUrlSsrf(url), /URL không hợp lệ|SSRF|bị cấm/i, url);
 });
 
-test('T1: SSRF guard must validate every redirect hop and resolved IP', () => {
+test('T1: SSRF guard must validate every redirect hop and resolved IP', async () => {
+  // This test is a contract for the fetch layer, not just the URL parser.
+  // It should fail until fetchTextFromUrl uses redirect:false or a per-hop validator.
   assert.equal(typeof globalThis.validateRedirectTarget, 'function',
     'Expose validateRedirectTarget(url) from scraper.js and validate every redirect hop');
-  assert.throws(() => globalThis.validateRedirectTarget('http://127.0.0.1/'), /SSRF|private|internal/i);
+  await assert.rejects(async () => await globalThis.validateRedirectTarget('http://127.0.0.1/'), /SSRF|private|internal/i);
 });
 
 // T2: quota abuse. Keep the accounting pure and deterministic.
