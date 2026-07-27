@@ -16,14 +16,29 @@ import { startAutoCleanupCron } from './services/cleanup.js';
 import { ocrWorker, warmupOcrWorker } from './services/ocr-worker.js';
 
 import { assertPromptBudget, buildTranslationMessages, buildReviewMessages } from './services/prompt-guard.js';
-import { budgetMiddleware, validateUploadBytes } from './services/security.js';
+import { budgetMiddleware, validateUploadBytes, securityHeadersMiddleware } from './services/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use(securityHeadersMiddleware);
 app.use(configureCors());
 app.use(express.json({ limit: '50mb' }));
+
+// Liveness & Readiness Probes (OWASP ASVS V13.1.1)
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+
+app.get('/readyz', (req, res) => {
+  const ocrReady = ocrWorker && ocrWorker.proc && !ocrWorker.proc.killed;
+  res.status(ocrReady ? 200 : 503).json({
+    status: ocrReady ? 'ready' : 'degraded',
+    ocrWorkerReady: Boolean(ocrReady),
+    timestamp: new Date().toISOString()
+  });
+});
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Quá nhiều request. Vui lòng chờ 1 phút.' } });
 app.use('/api/', limiter);

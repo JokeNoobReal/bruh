@@ -1,18 +1,22 @@
 // test/security-threats.test.js
-// Security regression suite for the 5 most urgent BRUH threats.
+// Security regression suite for OWASP ASVS 5.0.0 threat controls.
 // Run: node --test test/security-threats.test.js
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateUrlSsrf } from '../services/scraper.js';
-import { requireApiAuth } from '../services/auth.js';
+import { validateUrlSsrf, isPrivateAddress } from '../services/scraper.js';
+import { requireApiAuth, configureCors } from '../services/auth.js';
 import { buildTranslationMessages } from '../services/prompt-guard.js';
-import '../services/security.js';
+import { securityHeadersMiddleware } from '../services/security.js';
+import { logAuditEvent } from '../services/audit.js';
 
 function responseMock() {
+  const headers = {};
   return {
     statusCode: 200,
     body: null,
+    headers,
+    setHeader(name, val) { headers[name.toLowerCase()] = val; return this; },
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
   };
@@ -42,7 +46,7 @@ function withEnv(values, fn) {
   }
 }
 
-// T1: SSRF, including redirect/DNS rebinding protection.
+// T1: SSRF, including redirect/DNS rebinding protection & IPv4-mapped IPv6.
 test('T1: blocks private, loopback, metadata and non-http URLs', () => {
   const blocked = [
     'http://localhost/',
@@ -55,11 +59,11 @@ test('T1: blocks private, loopback, metadata and non-http URLs', () => {
     'file:///etc/passwd',
   ];
   for (const url of blocked) assert.throws(() => validateUrlSsrf(url), /URL không hợp lệ|SSRF|bị cấm/i, url);
+  assert.equal(isPrivateAddress('::ffff:127.0.0.1'), true);
+  assert.equal(isPrivateAddress('::ffff:10.0.0.1'), true);
 });
 
 test('T1: SSRF guard must validate every redirect hop and resolved IP', async () => {
-  // This test is a contract for the fetch layer, not just the URL parser.
-  // It should fail until fetchTextFromUrl uses redirect:false or a per-hop validator.
   assert.equal(typeof globalThis.validateRedirectTarget, 'function',
     'Expose validateRedirectTarget(url) from scraper.js and validate every redirect hop');
   await assert.rejects(async () => await globalThis.validateRedirectTarget('http://127.0.0.1/'), /SSRF|private|internal/i);
@@ -101,6 +105,32 @@ test('T4: production auth accepts header token only', () => {
     requireApiAuth(authRequest({ token: 'secret-token' }), fromHeader, next);
     assert.equal(fromHeader.statusCode, 200);
   });
+});
+
+// V3.4 & V3.4.2: Security Headers & CORS Fail-Closed
+test('V3.4: securityHeadersMiddleware sets HSTS, CSP, nosniff, frame-ancestors, referrer policy', () => {
+  const res = responseMock();
+  securityHeadersMiddleware({}, res, () => {});
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+  assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
+  assert.equal(res.headers['referrer-policy'], 'strict-origin-when-cross-origin');
+  assert.match(res.headers['strict-transport-security'], /max-age=31536000/);
+});
+
+test('V3.4.2: CORS fails closed in production when ALLOWED_ORIGINS is missing', () => {
+  withEnv({ NODE_ENV: 'production', ALLOWED_ORIGINS: '' }, () => {
+    assert.throws(() => configureCors(), /ALLOWED_ORIGINS is required/i);
+  });
+});
+
+// V7.2.1: Structured Security Audit Logging
+test('V7.2.1: logAuditEvent emits structured JSON logs with IP and event details', () => {
+  const req = { ip: '1.2.3.4', method: 'POST', originalUrl: '/api/translate-stream', headers: { 'user-agent': 'TestAgent' } };
+  const entry = logAuditEvent('AUTH_FAILURE', { req, category: 'AUTH', reason: 'Invalid token' });
+  assert.equal(entry.event, 'AUTH_FAILURE');
+  assert.equal(entry.ip, '1.2.3.4');
+  assert.equal(entry.details.reason, 'Invalid token');
 });
 
 // T5: scraped chapters and user notes are data, never instructions.

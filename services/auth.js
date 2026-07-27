@@ -45,6 +45,7 @@ export function requireApiAuth(req, res, next) {
  * Cấu hình CORS an toàn theo domain cho phép (ALLOWED_ORIGINS)
  */
 export function configureCors() {
+  const isProduction = process.env.NODE_ENV === 'production';
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map(o => o.trim())
@@ -52,7 +53,7 @@ export function configureCors() {
 
   if (allowedOrigins.length === 0) {
     if (isProduction) {
-      console.warn('⚠️ [SECURITY CAUTION] Chưa cấu hình ALLOWED_ORIGINS trong môi trường production!');
+      throw new Error('ALLOWED_ORIGINS is required in production environment');
     }
     return cors();
   }

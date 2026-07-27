@@ -35,7 +35,7 @@ jobs:
           done
 
       - name: Verify module imports
-        run: node --input-type=module -e "import('./services/glossary.js'); import('./services/scraper.js'); import('./services/auth.js'); import('./services/ai.js'); import('./services/ocr-worker.js'); import('./services/prompt-guard.js'); import('./services/security.js')"
+        run: node --input-type=module -e "import('./services/glossary.js'); import('./services/scraper.js'); import('./services/auth.js'); import('./services/ai.js'); import('./services/ocr-worker.js'); import('./services/prompt-guard.js'); import('./services/security.js'); import('./services/audit.js')"
 
       - name: Run tests
         run: npm test

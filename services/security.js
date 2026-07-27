@@ -13,6 +13,16 @@ export function buildUntrustedBlock(label, value, maxChars = MAX_INPUT_CHARS) {
   return `\n<untrusted-data label="${label}">\n${text}\n</untrusted-data>\n`;
 }
 
+export function securityHeadersMiddleware(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'self';");
+  next();
+}
+
 export function enforceRequestBudget({ inputChars = 0, chunks = 1, reviewRounds = 1, costUsd = 0 } = {}) {
   if (inputChars > 100_000) return { ok: false, code: 'INPUT_TOO_LARGE' };
   if (costUsd > 10) return { ok: false, code: 'BUDGET_EXCEEDED' };

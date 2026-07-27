@@ -58,12 +58,16 @@ import dns from 'dns/promises';
 import net from 'net';
 
 export function isPrivateAddress(address) {
-  if (net.isIPv4(address)) {
-    const [a, b] = address.split('.').map(Number);
+  let ip = String(address || '').trim().toLowerCase();
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.replace('::ffff:', '');
+  }
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
     return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
       (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
   }
-  return address === '::1' || address.startsWith('fc') || address.startsWith('fd') || address.startsWith('fe80:');
+  return ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80:');
 }
 
 export async function validateResolvedHost(inputUrl) {
