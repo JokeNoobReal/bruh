@@ -7,11 +7,10 @@ import { execFile, spawn } from 'child_process';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 
-import { loadGlossary, saveGlossary, renderForPrompt } from './services/glossary.js';
-import { updateGlossaryFromChapter } from './services/glossary-extract.js';
+import * as G from './services/glossary.js';
 import glossaryRoutes from './services/glossary-routes.js';
 import { streamAIWithRotation, callAIQuiet, getAIClient } from './services/ai.js';
-import { fetchTextFromUrl, fetchMultipleUrls } from './services/scraper.js';
+import { fetchTextFromUrl, fetchMultipleUrls, fetchPairSamples } from './services/scraper.js';
 import { requireApiAuth, configureCors } from './services/auth.js';
 import { startAutoCleanupCron } from './services/cleanup.js';
 
