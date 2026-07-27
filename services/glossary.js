@@ -126,11 +126,10 @@ const esc = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function wordRegex(name, flags = 'gi') {
-  const safeName = String(name ?? '');
+  const safeName = esc(String(name ?? ''));
   const safeFlags = flags.includes('u') ? flags : `${flags}u`;
-
   return new RegExp(
-    `(?<![\\p{L}\\p{N}])${esc(safeName)}(?![\\p{L}\\p{N}])`,
+    `(?<![\\p{L}\\p{N}])${safeName}(?![\\p{L}\\p{N}])`,
     safeFlags
   );
 }
@@ -141,9 +140,7 @@ export function namesOf(term) {
 
 export function appearsIn(text, term) {
   if (!text || !term) return false;
-  return namesOf(term).some((name) =>
-    wordRegex(name, 'i').test(String(text))
-  );
+  return namesOf(term).some(name => wordRegex(name, 'i').test(String(text)));
 }
 
 // ─────────────────────────────────────────────

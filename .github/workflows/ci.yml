@@ -1,29 +1,53 @@
-name: CI Syntax & Test Suite
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  build-and-test:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Check JavaScript Syntax
-        run: node --check server.js && node --check services/*.js
+      - name: Check JavaScript syntax
+        run: |
+          node --check server.js
+          for file in services/*.js; do
+            node --check "$file"
+          done
 
-      - name: Run Test Suite
-        run: node --test test/*.test.js
+      - name: Verify module imports
+        run: node --input-type=module -e "import('./services/glossary.js'); import('./services/scraper.js'); import('./services/auth.js'); import('./services/ai.js')"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check tracked secrets
+        run: |
+          ! git grep -nE '(OPENROUTER_API_KEY|DEEPSEEK_API_KEY|MINIMAX_API_KEY|FLASH_API_KEY|sk-[A-Za-z0-9_-]{20,})' -- ':!*.md' ':!.env.example'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile Python
+        run: python -m py_compile comic_translator.py

@@ -5,8 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check services/*.js",
-    "test": "node --test test/*.test.js"
+    "check": "node --check server.js && node --check services/ai.js && node --check services/auth.js && node --check services/cleanup.js && node --check services/glossary-routes.js && node --check services/glossary.js && node --check services/scraper.js",
+    "test": "node --test test/*.test.js",
+    "verify": "npm run check && npm test"
   },
   "dependencies": {
     "axios": "^1.7.0",
