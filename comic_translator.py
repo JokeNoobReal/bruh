@@ -26,25 +26,34 @@ from dotenv import load_dotenv
 # Tải biến môi trường từ file .env
 load_dotenv()
 
+_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+FONT_CANDIDATES = [
+    os.path.join(_FONT_DIR, "NotoSans-Bold.ttf"),   # font kèm repo, ưu tiên số 1
+    os.path.join(_FONT_DIR, "arial.ttf"),
+    os.path.join(_FONT_DIR, "tahoma.ttf"),
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/tahoma.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+]
+
+_FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.exists(p)), None)
+if _FONT_PATH is None:
+    raise RuntimeError(
+        "Không tìm thấy font hỗ trợ tiếng Việt. "
+        "Tải NotoSans-Bold.ttf và đặt vào thư mục fonts/ cạnh comic_translator.py"
+    )
+
+_FONT_CACHE = {}
 def load_font(size):
-    """
-    Hàm hỗ trợ tải font chữ theo thứ tự ưu tiên.
-    Thử lần lượt các đường dẫn, nếu không được thì dùng font mặc định.
-    """
-    font_paths = [
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/tahoma.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
-    ]
-    for path in font_paths:
-        try:
-            if os.path.exists(path):
-                return ImageFont.truetype(path, size)
-        except Exception:
-            continue
-    # Nếu không tìm thấy font nào, dùng font mặc định
-    return ImageFont.load_default()
+    """Tải font (có cache) đảm bảo render đủ dấu tiếng Việt."""
+    size = int(size)
+    if size not in _FONT_CACHE:
+        _FONT_CACHE[size] = ImageFont.truetype(_FONT_PATH, size)
+    return _FONT_CACHE[size]
 
 def wrap_text(text, font, max_width):
     """
@@ -381,7 +390,8 @@ FORMAT ĐẦU RA:
 
     img_h, img_w, _ = img_cv.shape
 
-    # 1. Xóa sạch 100% chữ Tiếng Anh/Nhật cũ bên trong từng bong bóng thoại bằng OpenCV Telea Inpainting
+    # 1. Xóa sạch 100% chữ Tiếng Anh/Nhật cũ + GHI NHỚ màu nền của TỪNG bong bóng
+    bubble_bg = {}
     for item in merged_bubbles:
         x0, y0, x1, y1 = item["bounds"]
         x0 = max(0, x0 - 4)
@@ -389,11 +399,14 @@ FORMAT ĐẦU RA:
         x1 = min(img_w, x1 + 4)
         y1 = min(img_h, y1 + 4)
 
+        bubble_bg[item["idx"]] = (255, 255, 255) # mặc định an toàn
+
         if (x1 - x0) > 0 and (y1 - y0) > 0:
             crop_region = img_cv[y0:y1, x0:x1]
             inpainted_crop, bg_color = inpaint_speech_bubble(crop_region)
             if inpainted_crop is not None and inpainted_crop.size > 0:
                 img_cv[y0:y1, x0:x1] = inpainted_crop
+            bubble_bg[item["idx"]] = bg_color
 
     # 2. Chuyển ảnh đã xóa sạch chữ cũ 100% sang PIL để chèn chữ Tiếng Việt mới
     img_pil = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
@@ -442,8 +455,9 @@ FORMAT ĐẦU RA:
         # Căn giữa chiều dọc
         start_y = y0 + max(0, (box_h - final_height) // 2)
         
-        # Màu chữ: Nền tối dùng chữ trắng, Nền sáng dùng chữ đen
-        brightness = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
+        # Màu chữ: lấy đúng nền CỦA BONG BÓNG NÀY
+        bg = bubble_bg.get(idx, (255, 255, 255))
+        brightness = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
         text_color = (0, 0, 0) if brightness >= 128 else (255, 255, 255)
 
         for line in final_lines:
