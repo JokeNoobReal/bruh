@@ -1,0 +1,8 @@
+node_modules/
+uploads/
+.env
+__pycache__/
+*.pyc
+public/*.jpg
+public/*.png
+!public/index.html

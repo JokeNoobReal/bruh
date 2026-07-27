@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Ứng dụng dịch truyện chữ và truyện tranh bằng AI multi-agent">
+    <title>AI Translators - Dịch Thuật Chuyên Nghiệp 5 Giai Đoạn</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
+        body { background-color: #0f172a; color: #e2e8f0; padding: 20px; line-height: 1.5; }
+        h1 { text-align: center; color: #38bdf8; margin-bottom: 25px; font-weight: 700; font-size: 28px; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        
+        .tabs { display: flex; justify-content: center; gap: 12px; margin-bottom: 25px; flex-wrap: wrap; }
+        .tab-btn { padding: 12px 25px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .tab-btn:hover { background: #334155; color: #cbd5e1; }
+        .tab-btn.active { background: #0ea5e9; color: white; border-color: #0ea5e9; box-shadow: 0 4px 10px rgba(14, 165, 233, 0.4); }
+        .tab-content { display: none; max-width: 1500px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        .tab-content.active { display: block; animation: fadeIn 0.4s ease-out; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        label { font-size: 14px; color: #38bdf8; font-weight: 600; display: block; margin: 12px 0 8px; }
+        textarea, input, select { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f8fafc; padding: 12px; font-size: 14px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        textarea:focus, input:focus, select:focus { border-color: #0ea5e9; box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2); }
+        textarea { height: 65px; resize: vertical; }
+        
+        button.action-btn { width: 100%; background-color: #0ea5e9; color: white; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 16px; margin-top: 15px; transition: all 0.2s ease; box-shadow: 0 4px 6px rgba(14, 165, 233, 0.2); display: flex; align-items: center; justify-content: center; }
+        button.action-btn:hover:not(:disabled) { background-color: #0284c7; box-shadow: 0 6px 12px rgba(14, 165, 233, 0.3); transform: translateY(-1px); }
+        button.action-btn:disabled { background-color: #475569; box-shadow: none; cursor: not-allowed; opacity: 0.7; transform: none; }
+        
+        .status { padding: 14px; background: #334155; border-radius: 8px; text-align: center; font-weight: 600; color: #fbbf24; margin-top: 15px; border-left: 5px solid #fbbf24; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        
+        /* GIAO DIỆN TIMELINE ĐỘNG */
+        #dynamic-container { display: flex; flex-direction: column; gap: 20px; margin-top: 25px; }
+        .dynamic-box { position: relative; background: #020617; border: 1px solid #334155; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; box-shadow: 0 4px 6px rgba(0,0,0,0.15); transition: transform 0.2s, box-shadow 0.2s; }
+        .dynamic-box:hover { box-shadow: 0 6px 12px rgba(0,0,0,0.25); }
+        .dynamic-box .title { font-weight: 700; margin-bottom: 12px; font-size: 16px; border-bottom: 1px dashed #334155; padding-bottom: 8px; }
+        .dynamic-box .content { overflow-y: auto; max-height: 400px; line-height: 1.7; font-size: 15px; white-space: pre-wrap; padding-right: 12px; }
+        /* Scrollbar styling */
+        .dynamic-box .content::-webkit-scrollbar { width: 6px; }
+        .dynamic-box .content::-webkit-scrollbar-track { background: #0f172a; border-radius: 4px; }
+        .dynamic-box .content::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .dynamic-box .content::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        
+        /* Bảng màu 5 Giai Đoạn Dịch Thuật Chuyên Nghiệp */
+        .color-gd1 { border-left: 4px solid #f59e0b; } /* GĐ1: Chuẩn bị — Vàng Amber */
+        .color-gd1 .title { color: #fbbf24; }
+        .color-gd1 .content { color: #fde68a; }
+        .color-gd2 { border-left: 4px solid #3b82f6; } /* GĐ2: Dịch Thô — Xanh dương */
+        .color-gd2 .title { color: #60a5fa; }
+        .color-gd2 .content { color: #93c5fd; }
+        .color-gd3 { border-left: 4px solid #a855f7; } /* GĐ3: Biên tập — Tím */
+        .color-gd3 .title { color: #c084fc; }
+        .color-gd3 .content { color: #d8b4fe; }
+        .color-gd4 { border-left: 4px solid #f97316; } /* GĐ4: Hiệu đính — Cam */
+        .color-gd4 .title { color: #fb923c; }
+        .color-gd4 .content { color: #fdba74; }
+        .color-gd5 { border: 2px solid #10b981 !important; background: #0f172a !important; box-shadow: 0 0 20px rgba(16, 185, 129, 0.15) !important; } /* GĐ5: Hoàn thiện — Xanh lá */
+        .color-gd5 .title { color: #34d399; font-size: 17px; }
+        .color-gd5 .content { color: #f8fafc; font-size: 16px; }
+        /* Giữ lại các class cũ cho tương thích */
+        .color-ds .title, .color-ds .content { color: #94a3b8; } 
+        .color-mm .title, .color-mm .content { color: #a78bfa; } 
+        .color-ds2 .title, .color-ds2 .content { color: #6ee7b7; } 
+        .color-final { border: 2px solid #0ea5e9 !important; background: #0f172a !important; box-shadow: 0 0 15px rgba(14, 165, 233, 0.1) !important; }
+        .color-final .title, .color-final .content { color: #f8fafc; font-size: 16px; } 
+
+        /* Upload truyện tranh */
+        .upload-area { border: 2px dashed #475569; padding: 45px; text-align: center; border-radius: 10px; margin-bottom: 20px; background: #0f172a; transition: border-color 0.3s, background 0.3s; }
+        .upload-area:hover { border-color: #0ea5e9; background: #0f172a; }
+        .upload-area input { display: none; }
+        .upload-btn { background: #334155; padding: 12px 24px; border-radius: 8px; cursor: pointer; display: inline-block; font-weight: 600; color: white; transition: background 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .upload-btn:hover { background: #475569; }
+        #resultComicImage { max-width: 100%; margin-top: 25px; border-radius: 10px; border: 2px solid #38bdf8; display: none; box-shadow: 0 8px 16px rgba(0,0,0,0.3); }
+
+        /* Grid container */
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+        /* Spinner & Utilities */
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .copy-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #334155;
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+        }
+        .copy-btn:hover { background: #475569; color: white; border-color: #64748b; }
+
+        .cancel-btn {
+            width: 100%;
+            background-color: #dc2626;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 12px;
+            display: none;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(220, 38, 38, 0.2);
+            justify-content: center;
+            align-items: center;
+        }
+        .cancel-btn:hover { background-color: #b91c1c; box-shadow: 0 6px 12px rgba(220, 38, 38, 0.3); transform: translateY(-1px); }
+
+        /* WIDGET CHAT TRỰC TIẾP VỚI MINIMAX */
+        .minimax-chat-widget {
+            margin-top: 15px;
+            background: #0f172a;
+            border: 1px solid #7c3aed;
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .chat-logs {
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 13.5px;
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .chat-msg-user {
+            background: #334155;
+            color: #38bdf8;
+            padding: 8px 12px;
+            border-radius: 8px;
+            align-self: flex-end;
+            max-width: 85%;
+        }
+        .chat-msg-minimax {
+            background: #2e1065;
+            color: #c4b5fd;
+            padding: 8px 12px;
+            border-radius: 8px;
+            align-self: flex-start;
+            max-width: 85%;
+            border: 1px solid #7c3aed;
+            white-space: pre-wrap;
+        }
+        .chat-input-row {
+            display: flex;
+            gap: 8px;
+        }
+        .minimax-chat-input {
+            flex: 1;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            color: #f8fafc;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+        .minimax-chat-btn {
+            background: #7c3aed;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+            transition: 0.2s;
+        }
+        .minimax-chat-btn:hover { background: #6d28d9; }
+
+        /* Responsive */
+        @media (max-width: 767px) {
+            .grid-container { grid-template-columns: 1fr; gap: 12px; }
+            body { padding: 15px 10px; }
+            .tab-content { padding: 20px 15px; }
+            .upload-area { padding: 30px 15px; }
+            h1 { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🚀 Dịch Thuật AI Chuyên Nghiệp 5 Giai Đoạn</h1>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('text-tab', this)">📖 Dịch Truyện Chữ</button>
+        <button class="tab-btn" onclick="switchTab('comic-tab', this)">🖼️ Dịch Truyện Tranh</button>
+    </div>
+
+    <!-- TAB TRUYỆN CHỮ -->
+    <div id="text-tab" class="tab-content active">
+        <div class="grid-container">
+            <div>
+                <label>📌 Link Các Chương Mẫu Anh (Nhập 3 - 5+ chap tùy thích, mỗi link 1 dòng):</label>
+                <textarea id="urlsSampleEn" placeholder="https://example.com/en/chap-1&#10;https://example.com/en/chap-2&#10;https://example.com/en/chap-3&#10;https://example.com/en/chap-4" style="height: 90px;"></textarea>
+            </div>
+            <div>
+                <label>📌 Link Các Chương Mẫu Việt Tương Ứng (Mỗi link 1 dòng theo đúng thứ tự):</label>
+                <textarea id="urlsSampleVi" placeholder="https://example.com/vi/chuong-1&#10;https://example.com/vi/chuong-2&#10;https://example.com/vi/chuong-3&#10;https://example.com/vi/chuong-4" style="height: 90px;"></textarea>
+            </div>
+        </div>
+        <label>Link Chương MỚI Cần Dịch (Bắt AI cãi nhau đến khi ra kết quả tốt nhất):</label>
+        <input type="text" id="urlNewEn">
+        
+        <label style="color: #a78bfa; margin-top: 15px;">💬 Góp ý & Chỉ đạo bổ sung cho AI (Tùy chọn):</label>
+        <textarea id="userInstructions" placeholder="Ví dụ: Đổi xưng hô Nukumizu - Yanami thành cậu/tớ; giữ văn phong khô khan deadpan; dịch các cảnh hài hước tự nhiên hơn..." style="height: 60px;"></textarea>
+
+        <!-- BẢNG CẤU HÌNH MODEL AI -->
+        <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-top: 15px; margin-bottom: 15px;">
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 15px; color: #38bdf8;">⚙️ Tùy Chọn Model AI Cho Các Đặc Vụ</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                <div>
+                    <label style="font-size: 13px; color: #94a3b8;">🤖 Agent Dịch Thuật:</label>
+                    <select id="translateModel" style="width: 100%; background: #1e293b; border: 1px solid #475569; border-radius: 6px; color: #f8fafc; padding: 8px; font-size: 13px;">
+                        <option value="nvidia/nemotron-3-ultra-550b-a55b:free">🔥 Nemotron 3 Ultra 550B (OpenRouter Free)</option>
+                        <option value="deepseek/deepseek-v4-flash">⚡ DeepSeek v4 Flash (Nhanh & Mượt)</option>
+                        <option value="deepseek/deepseek-v4-pro">🧠 DeepSeek v4 Pro (Dịch Sâu)</option>
+                        <option value="minimax/minimax-m3">📖 MiniMax M3 (Văn Học)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 13px; color: #94a3b8;">🧠 Agent Kiểm Duyệt (Tổng Biên Tập):</label>
+                    <select id="reviewModel" style="width: 100%; background: #1e293b; border: 1px solid #475569; border-radius: 6px; color: #f8fafc; padding: 8px; font-size: 13px;">
+                        <option value="minimax/minimax-m3">🧠 MiniMax M3 (Khắt khe & Sắc bén)</option>
+                        <option value="nvidia/nemotron-3-ultra-550b-a55b:free">🔥 Nemotron 3 Ultra 550B (OpenRouter Free)</option>
+                        <option value="deepseek/deepseek-v4-pro">🤖 DeepSeek v4 Pro (Soi Lỗi)</option>
+                        <option value="deepseek/deepseek-v4-flash">⚡ DeepSeek v4 Flash (Nhanh)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 13px; color: #94a3b8;">🛡️ Agent Dự Phòng (Khi Lỗi API):</label>
+                    <select id="fallbackModel" style="width: 100%; background: #1e293b; border: 1px solid #475569; border-radius: 6px; color: #f8fafc; padding: 8px; font-size: 13px;">
+                        <option value="nvidia/nemotron-3-ultra-550b-a55b:free">🔥 Nemotron 3 Ultra 550B (OpenRouter Free)</option>
+                        <option value="minimax/minimax-m3">📖 MiniMax M3 (Dự phòng Văn học)</option>
+                        <option value="deepseek/deepseek-v4-flash">⚡ DeepSeek v4 Flash (Dự phòng Nhanh)</option>
+                        <option value="deepseek/deepseek-v4-pro">🧠 DeepSeek v4 Pro (Dự phòng Chuyên sâu)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <button class="action-btn" id="btnText" onclick="translateText()">📖 Bắt Đầu Quy Trình Dịch Chuyên Nghiệp 5 Giai Đoạn</button>
+        <button class="cancel-btn" id="btnCancel" onclick="cancelTranslation()">🛑 Hủy Dịch</button>
+        <div id="statusText" class="status">Sẵn sàng!</div>
+
+        <!-- VÙNG CHỨA CÁC Ô ĐƯỢC TẠO TỰ ĐỘNG -->
+        <div id="dynamic-container"></div>
+    </div>
+
+    <!-- TAB TRUYỆN TRANH -->
+    <div id="comic-tab" class="tab-content">
+        <label>Ngôn ngữ nguồn:</label>
+        <select id="sourceLang" style="margin-bottom: 15px;">
+            <option value="en">🇬🇧 Tiếng Anh (English)</option>
+            <option value="ja">🇯🇵 Tiếng Nhật (Japanese)</option>
+            <option value="ko">🇰🇷 Tiếng Hàn (Korean)</option>
+            <option value="zh">🇨🇳 Tiếng Trung (Chinese)</option>
+        </select>
+        
+        <label style="color: #38bdf8;">🌐 CÁCH 1: Dán Link Ảnh / Link Trang Web Truyện Tranh (URL):</label>
+        <input type="text" id="comicUrl" placeholder="https://domain.com/path/to/page1.jpg hoặc link trang web đọc truyện..." style="margin-bottom: 15px;">
+
+        <label style="color: #38bdf8;">📁 CÁCH 2: Hoặc Tải File Ảnh Từ Máy Tính (JPG/PNG):</label>
+        <div class="upload-area">
+            <label class="upload-btn"> Tải Ảnh Truyện Tranh <input type="file" id="comicImage" accept="image/*" onchange="previewImage(event)"></label>
+        <div style="background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <label style="color: #38bdf8; font-weight: bold; margin: 0;">📚 QUẢN LÝ DỰ ÁN TRUYỆN TRANH THEO BỘ:</label>
+                <button type="button" onclick="createNewComicProfile()" style="background: #0284c7; color: white; border: none; padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;">➕ Thêm Bộ Truyện Mới</button>
+            </div>
+            
+            <select id="comicProfileSelect" onchange="switchComicProfile()" style="margin-bottom: 12px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; padding: 8px; border-radius: 6px; width: 100%; font-size: 13px; font-weight: 500;">
+                <option value="default">📖 Bộ Mặc Định (Chung)</option>
+            </select>
+
+            <label style="color: #94a3b8; font-size: 13px;">💬 Chỉ Đạo Bối Cảnh & Quy Tắc Xưng Hô Riêng Cho Bộ Này:</label>
+            <textarea id="comicUserInstructions" rows="3" placeholder="Ví dụ: Chap 1-3 (xa lạ): xưng Tôi - Ngươi; Chap 4+ (bạn bè): xưng Tớ - Cậu; Hầu gái xưng em/cậu chủ..." style="width: 100%; margin-top: 5px; margin-bottom: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical;" oninput="saveCurrentProfileData()"></textarea>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="deleteCurrentComicProfile()" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">🗑️ Xóa Bộ Truyện Này</button>
+            </div>
+        </div>
+
+        <button class="action-btn" id="btnComic" onclick="translateComic()">🎨 Tiến Hành Quét OCR & Dịch</button>
+        
+        <div id="comicProgressContainer" style="display: none; margin-top: 15px; background: #1e293b; border-radius: 8px; padding: 12px; border: 1px solid #334155;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                <span id="comicStatusText" style="color: #38bdf8; font-weight: 500;">⏳ Đang kết nối...</span>
+                <span id="comicPercentText" style="color: #4ade80; font-weight: bold;">0%</span>
+            </div>
+            <div style="width: 100%; background: #0f172a; height: 10px; border-radius: 5px; overflow: hidden; border: 1px solid #475569;">
+                <div id="comicProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); transition: width 0.3s ease;"></div>
+            </div>
+        </div>
+
+        <div id="statusComic" class="status" style="margin-top: 15px;">Vui lòng dán link hoặc tải file ảnh.</div>
+        <div id="comicReaderContainer" style="margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 20px;"></div>
+    </div>
+
+    <script>
+        let currentAbortController = null;
+        let domBuffer = '';
+        let bufferTimer = null;
+
+        let comicProfiles = {};
+        try {
+            comicProfiles = JSON.parse(localStorage.getItem('comicProfiles') || '{}');
+        } catch (e) { comicProfiles = {}; }
+
+        if (!comicProfiles['default']) {
+            comicProfiles['default'] = {
+                name: '📖 Bộ Mặc Định (Chung)',
+                instructions: 'Hầu gái xưng "em/cậu chủ", Vanilla Lord dịch là "Chúa Tể Vani", văn phong mượt mà hài hước.'
+            };
+        }
+
+        window.onload = () => {
+            if(localStorage.getItem('urlsSampleEn')) document.getElementById('urlsSampleEn').value = localStorage.getItem('urlsSampleEn');
+            if(localStorage.getItem('urlsSampleVi')) document.getElementById('urlsSampleVi').value = localStorage.getItem('urlsSampleVi');
+            if(localStorage.getItem('userInstructions')) document.getElementById('userInstructions').value = localStorage.getItem('userInstructions');
+            if(localStorage.getItem('translateModel')) document.getElementById('translateModel').value = localStorage.getItem('translateModel');
+            if(localStorage.getItem('reviewModel')) document.getElementById('reviewModel').value = localStorage.getItem('reviewModel');
+            if(localStorage.getItem('fallbackModel')) document.getElementById('fallbackModel').value = localStorage.getItem('fallbackModel');
+            
+            renderProfileSelectOptions();
+        };
+
+        function renderProfileSelectOptions() {
+            const select = document.getElementById('comicProfileSelect');
+            if (!select) return;
+            select.innerHTML = '';
+            for (const key in comicProfiles) {
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = comicProfiles[key].name;
+                select.appendChild(opt);
+            }
+            const activeKey = localStorage.getItem('activeComicProfile') || 'default';
+            select.value = comicProfiles[activeKey] ? activeKey : 'default';
+            loadProfileData(select.value);
+        }
+
+        function loadProfileData(profileKey) {
+            const instructionsEl = document.getElementById('comicUserInstructions');
+            if (instructionsEl && comicProfiles[profileKey]) {
+                instructionsEl.value = comicProfiles[profileKey].instructions || '';
+                localStorage.setItem('activeComicProfile', profileKey);
+            }
+        }
+
+        function switchComicProfile() {
+            const select = document.getElementById('comicProfileSelect');
+            if (select) loadProfileData(select.value);
+        }
+
+        function saveCurrentProfileData() {
+            const select = document.getElementById('comicProfileSelect');
+            const instructionsEl = document.getElementById('comicUserInstructions');
+            if (select && instructionsEl) {
+                const key = select.value;
+                if (comicProfiles[key]) {
+                    comicProfiles[key].instructions = instructionsEl.value;
+                    localStorage.setItem('comicProfiles', JSON.stringify(comicProfiles));
+                }
+            }
+        }
+
+        function createNewComicProfile() {
+            const name = prompt("Nhập tên bộ truyện mới (Ví dụ: 'Chúa Tể Vani', 'Anh Hùng Trùng Sinh'...):");
+            if (!name || !name.trim()) return;
+            const key = 'profile_' + Date.now();
+            comicProfiles[key] = {
+                name: '📖 ' + name.trim(),
+                instructions: ''
+            };
+            localStorage.setItem('comicProfiles', JSON.stringify(comicProfiles));
+            renderProfileSelectOptions();
+            document.getElementById('comicProfileSelect').value = key;
+            loadProfileData(key);
+        }
+
+        function deleteCurrentComicProfile() {
+            const select = document.getElementById('comicProfileSelect');
+            const key = select ? select.value : '';
+            if (key === 'default') return alert("Không thể xóa bộ mặc định!");
+            if (confirm(`Bạn có chắc muốn xóa cấu hình bộ truyện "${comicProfiles[key]?.name}"?`)) {
+                delete comicProfiles[key];
+                localStorage.setItem('comicProfiles', JSON.stringify(comicProfiles));
+                renderProfileSelectOptions();
+            }
+        }
+
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        const smoothScroll = (boxElement) => {
+            if (boxElement) {
+                const isNearBottom = boxElement.scrollHeight - boxElement.clientHeight - boxElement.scrollTop < 120;
+                if (isNearBottom) {
+                    boxElement.scrollTop = boxElement.scrollHeight;
+                }
+            }
+        };
+
+        function cancelTranslation() {
+            if (currentAbortController) {
+                currentAbortController.abort();
+                document.getElementById('statusText').innerText = '🛑 Đã hủy phiên dịch!';
+            }
+        }
+
+        async function translateText() {
+            const urlsSampleEn = document.getElementById('urlsSampleEn').value.trim();
+            const urlsSampleVi = document.getElementById('urlsSampleVi').value.trim();
+            const urlNewEn = document.getElementById('urlNewEn').value.trim();
+            const userInstructions = document.getElementById('userInstructions').value.trim();
+            
+            const translateModel = document.getElementById('translateModel').value;
+            const reviewModel = document.getElementById('reviewModel').value;
+            const fallbackModel = document.getElementById('fallbackModel').value;
+
+            const btn = document.getElementById('btnText');
+            const statusEl = document.getElementById('statusText');
+            const container = document.getElementById('dynamic-container');
+            
+            container.innerHTML = ""; 
+            
+            if (!urlsSampleEn || !urlsSampleVi || !urlNewEn) return alert("Nhập đủ link!");
+
+            localStorage.setItem('urlsSampleEn', urlsSampleEn);
+            localStorage.setItem('urlsSampleVi', urlsSampleVi);
+            localStorage.setItem('userInstructions', userInstructions);
+            localStorage.setItem('translateModel', translateModel);
+            localStorage.setItem('reviewModel', reviewModel);
+            localStorage.setItem('fallbackModel', fallbackModel);
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Đang xử lý...';
+            document.getElementById('btnCancel').style.display = 'flex';
+            
+            currentAbortController = new AbortController();
+            let currentContentBox = null; 
+
+            try {
+                const response = await fetch('/api/translate-stream', {
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ urlsSampleEn, urlsSampleVi, urlNewEn, userInstructions, translateModel, reviewModel, fallbackModel }),
+                    signal: currentAbortController.signal
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop(); 
+
+                    for (const part of parts) {
+                        if (part.startsWith('data: ')) {
+                            const event = JSON.parse(part.substring(6));
+                            
+                            if (event.type === 'status') {
+                                statusEl.innerText = event.data;
+                            } 
+                            else if (event.type === 'new_box') {
+                                if (domBuffer && currentContentBox) {
+                                    currentContentBox.insertAdjacentText('beforeend', domBuffer);
+                                    smoothScroll(currentContentBox);
+                                    domBuffer = '';
+                                }
+                                if (bufferTimer) { cancelAnimationFrame(bufferTimer); bufferTimer = null; }
+
+                                const box = document.createElement('div');
+                                box.className = `dynamic-box ${event.colorClass}`;
+                                
+                                const titleEl = document.createElement('div');
+                                titleEl.className = 'title';
+                                titleEl.textContent = event.title;
+                                
+                                const contentEl = document.createElement('div');
+                                contentEl.className = 'content';
+                                
+                                // Cho phép click vào Tiêu đề các bản nháp để Ẩn / Mở lại bất kỳ lúc nào
+                                if (['color-gd1','color-gd2','color-gd3','color-gd4','color-ds','color-ds2'].includes(event.colorClass)) {
+                                    titleEl.style.cursor = 'pointer';
+                                    titleEl.title = 'Click để Ẩn/Mở giai đoạn này';
+                                    titleEl.onclick = () => {
+                                        contentEl.style.display = contentEl.style.display === 'none' ? 'block' : 'none';
+                                    };
+                                }
+
+                                box.appendChild(titleEl);
+                                box.appendChild(contentEl);
+                                
+                                if (event.colorClass === 'color-gd5' || event.colorClass === 'color-final') {
+                                    const copyBtn = document.createElement('button');
+                                    copyBtn.className = 'copy-btn';
+                                    copyBtn.textContent = '📋 Copy';
+                                    copyBtn.onclick = () => {
+                                        navigator.clipboard.writeText(contentEl.textContent).then(() => {
+                                            copyBtn.textContent = '✅ Đã copy!';
+                                            setTimeout(() => copyBtn.textContent = '📋 Copy', 2000);
+                                        });
+                                    };
+                                    box.appendChild(copyBtn);
+                                }
+
+                                if (event.colorClass === 'color-gd4' || event.colorClass === 'color-mm') {
+                                    const chatWidget = document.createElement('div');
+                                    chatWidget.className = 'minimax-chat-widget';
+                                    chatWidget.innerHTML = `
+                                        <div class="chat-logs"></div>
+                                        <div class="chat-input-row">
+                                            <input type="text" class="minimax-chat-input" placeholder="💬 Nhắn trực tiếp cho Tổng Biên Tập MiniMax (Ví dụ: Đổi xưng hô đoạn này thành cậu/tớ)..." onkeydown="if(event.key==='Enter') sendChatToMiniMax(this)">
+                                            <button class="minimax-chat-btn" onclick="sendChatToMiniMax(this)">Gửi MiniMax</button>
+                                        </div>
+                                    `;
+                                    box.appendChild(chatWidget);
+                                }
+                                
+                                container.appendChild(box);
+                                currentContentBox = contentEl;
+                            }
+                            else if (event.type === 'chunk' && currentContentBox) {
+                                domBuffer += event.data;
+                                if (!bufferTimer) {
+                                    bufferTimer = requestAnimationFrame(() => {
+                                        if (domBuffer && currentContentBox) {
+                                            currentContentBox.insertAdjacentText('beforeend', domBuffer);
+                                            smoothScroll(currentContentBox);
+                                            domBuffer = '';
+                                        }
+                                        bufferTimer = null;
+                                    });
+                                }
+                            }
+                            else if (event.type === 'error') {
+                                statusEl.innerText = "❌ Lỗi: " + event.data;
+                            }
+                        }
+                    }
+                }
+            } catch (err) { 
+                if (err.name === 'AbortError') {
+                    console.log('Fetch aborted');
+                } else {
+                    statusEl.innerText = "❌ Lỗi kết nối server!"; 
+                }
+            } finally { 
+                if (bufferTimer) { cancelAnimationFrame(bufferTimer); bufferTimer = null; }
+                if (domBuffer && currentContentBox) {
+                    currentContentBox.insertAdjacentText('beforeend', domBuffer);
+                    smoothScroll(currentContentBox);
+                    domBuffer = '';
+                }
+                btn.disabled = false; 
+                btn.innerHTML = '📖 Bắt Đầu Quy Trình Dịch Chuyên Nghiệp 5 Giai Đoạn';
+                document.getElementById('btnCancel').style.display = 'none';
+                currentAbortController = null;
+            }
+        }
+
+        async function sendChatToMiniMax(el) {
+            const widget = el.closest('.minimax-chat-widget');
+            const input = widget.querySelector('.minimax-chat-input');
+            const btn = widget.querySelector('.minimax-chat-btn');
+            const logs = widget.querySelector('.chat-logs');
+            const userText = input.value.trim();
+            if (!userText) return;
+
+            const userMsgEl = document.createElement('div');
+            userMsgEl.className = 'chat-msg-user';
+            userMsgEl.textContent = `👤 Bạn: ${userText}`;
+            logs.appendChild(userMsgEl);
+            input.value = '';
+
+            const mmMsgEl = document.createElement('div');
+            mmMsgEl.className = 'chat-msg-minimax';
+            mmMsgEl.textContent = '🧠 MiniMax: ';
+            logs.appendChild(mmMsgEl);
+            logs.scrollTop = logs.scrollHeight;
+
+            btn.disabled = true;
+            input.disabled = true;
+
+            const reviewModel = document.getElementById('reviewModel') ? document.getElementById('reviewModel').value : 'minimax/minimax-m3';
+            const fallbackModel = document.getElementById('fallbackModel') ? document.getElementById('fallbackModel').value : 'deepseek/deepseek-v4-flash';
+
+            try {
+                const response = await fetch('/api/chat-minimax', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userMessage: userText, reviewModel, fallbackModel })
+                });
+
+                if (!response.ok) {
+                    const errJson = await response.json();
+                    throw new Error(errJson.error || 'Lỗi server');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+
+                    for (const part of parts) {
+                        if (part.startsWith('data: ')) {
+                            const event = JSON.parse(part.substring(6));
+                            if (event.type === 'chunk') {
+                                mmMsgEl.insertAdjacentText('beforeend', event.data);
+                                requestAnimationFrame(() => {
+                                    logs.scrollTop = logs.scrollHeight;
+                                });
+                            }
+                        }
+                    }
+                }
+
+                const userInstructionEl = document.getElementById('userInstructions');
+                if (userInstructionEl) {
+                    userInstructionEl.value += (userInstructionEl.value ? '\n' : '') + `- ${userText}`;
+                    localStorage.setItem('userInstructions', userInstructionEl.value);
+                }
+            } catch (err) {
+                mmMsgEl.textContent += ' [Lỗi kết nối API MiniMax]';
+            } finally {
+                btn.disabled = false;
+                input.disabled = false;
+                input.focus();
+            }
+        }
+
+        function previewImage(event) {
+            const file = event.target.files[0];
+            if (file) { 
+                document.getElementById('fileName').innerText = "Đã chọn: " + file.name; 
+                document.getElementById('comicReaderContainer').innerHTML = ''; 
+            }
+        }
+        
+        async function translateComic() {
+            const fileInput = document.getElementById('comicImage');
+            const comicUrlInput = document.getElementById('comicUrl');
+            const statusEl = document.getElementById('statusComic');
+            const btn = document.getElementById('btnComic');
+            const readerContainer = document.getElementById('comicReaderContainer');
+            const sourceLang = document.getElementById('sourceLang').value;
+            
+            const progressContainer = document.getElementById('comicProgressContainer');
+            const comicStatusText = document.getElementById('comicStatusText');
+            const comicPercentText = document.getElementById('comicPercentText');
+            const comicProgressBar = document.getElementById('comicProgressBar');
+
+            readerContainer.innerHTML = ""; 
+            const file = fileInput.files[0];
+            const comicUrl = comicUrlInput ? comicUrlInput.value.trim() : '';
+
+            if (!file && !comicUrl) {
+                return alert("Vui lòng dán link ảnh/trang truyện hoặc chọn 1 file ảnh từ máy!");
+            }
+            
+            const formData = new FormData(); 
+            if (file) formData.append('image', file);
+            if (comicUrl) formData.append('imageUrl', comicUrl);
+            formData.append('sourceLang', sourceLang);
+            const comicUserInstructions = document.getElementById('comicUserInstructions') ? document.getElementById('comicUserInstructions').value.trim() : '';
+            if (comicUserInstructions) {
+                formData.append('userInstructions', comicUserInstructions);
+                localStorage.setItem('comicUserInstructions', comicUserInstructions);
+            }
+            
+            progressContainer.style.display = 'block';
+            comicStatusText.innerText = "⏳ Đang kết nối server và khởi động tiến trình...";
+            comicPercentText.innerText = "0%";
+            comicProgressBar.style.width = "0%";
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Đang dịch Chapter...';
+
+            try {
+                const response = await fetch('/api/translate-comic', { method: 'POST', body: formData });
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+
+                    for (const part of parts) {
+                        if (part.startsWith('data: ')) {
+                            const event = JSON.parse(part.substring(6));
+                            
+                            if (event.type === 'status') {
+                                comicStatusText.innerText = event.data;
+                            }
+                            else if (event.type === 'page_done') {
+                                const { page, total, url } = event.data;
+                                const percent = Math.round((page / total) * 100);
+                                comicProgressBar.style.width = `${percent}%`;
+                                comicPercentText.innerText = `${percent}% (Đã xong ${page}/${total} trang)`;
+                                comicStatusText.innerText = `✅ Đã hoàn thành trang ${page}/${total}!`;
+
+                                const pageWrapper = document.createElement('div');
+                                pageWrapper.style.cssText = "text-align: center; max-width: 800px; width: 100%; background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155;";
+                                pageWrapper.innerHTML = `
+                                    <p style="color: #38bdf8; font-weight: bold; margin-bottom: 8px; font-size: 14px;">📄 Trang ${page} / ${total}</p>
+                                    <img src="${url}?t=${Date.now()}" style="max-width: 100%; border-radius: 6px; border: 1px solid #475569;">
+                                `;
+                                readerContainer.appendChild(pageWrapper);
+                            }
+                            else if (event.type === 'finished') {
+                                comicStatusText.innerText = event.data;
+                                comicPercentText.innerText = "100%";
+                                comicProgressBar.style.width = "100%";
+                                statusEl.innerHTML = `<p style="color: #4ade80; font-weight: bold;">🎉 ${event.data}</p>`;
+                            }
+                            else if (event.type === 'error') {
+                                statusEl.innerText = `❌ Lỗi: ${event.data}`;
+                            }
+                        }
+                    }
+                }
+            } catch (err) { 
+                statusEl.innerText = "❌ Lỗi kết nối gửi dữ liệu dịch!"; 
+            } finally { 
+                btn.disabled = false; 
+                btn.innerHTML = '🎨 Tiến Hành Quét OCR & Dịch';
+            }
+        }
+    </script>
+</body>
+</html>
