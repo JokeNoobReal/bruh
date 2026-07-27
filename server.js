@@ -10,6 +10,9 @@ import multer from 'multer';
 import { execFile, spawn } from 'child_process';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
+import { loadGlossary, saveGlossary, renderForPrompt } from './glossary.js';
+import { updateGlossaryFromChapter } from './glossary-extract.js';
+import glossaryRoutes from './glossary-routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +20,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use('/api/glossary', glossaryRoutes);
 app.use(express.static(path.join(__dirname, 'public')));
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Quá nhiều request. Vui lòng chờ 1 phút.' } });
@@ -61,67 +65,76 @@ function isKeyExhausted(apiKey) {
   return true;
 }
 
-// Khởi tạo hàm lấy Client OpenAI phù hợp với từng Model và API Key riêng
+// ===== BẢNG ĐĂNG KÝ MODEL =====
+const MODEL_REGISTRY = {
+  'deepseek/deepseek-v4-pro':   { pool: 'DEEPSEEK', provider: 'default' },
+  'deepseek/deepseek-v4-flash': { pool: 'DEEPSEEK', provider: 'default' },
+  'minimax/minimax-m3':         { pool: 'MINIMAX',  provider: 'default' },
+  'nvidia/nemotron':            { pool: 'OPENROUTER', provider: 'openrouter' },
+};
+
+// Thứ tự mượn key khi pool chính cạn sạch
+const POOL_FALLBACK = {
+  DEEPSEEK: ['DEEPSEEK', 'FLASH', 'MINIMAX'],
+  FLASH:    ['FLASH', 'DEEPSEEK', 'MINIMAX'],
+  MINIMAX:  ['MINIMAX', 'DEEPSEEK', 'FLASH'],
+};
+
+function resolveModel(modelName = '') {
+  if (MODEL_REGISTRY[modelName]) return MODEL_REGISTRY[modelName];
+  if (/openrouter|nvidia\/|nemotron/i.test(modelName)) return { pool: 'OPENROUTER', provider: 'openrouter' };
+  if (/^minimax\//i.test(modelName))  return { pool: 'MINIMAX',  provider: 'default' };
+  if (/^deepseek\//i.test(modelName)) return { pool: 'DEEPSEEK', provider: 'default' };
+  if (/flash/i.test(modelName))       return { pool: 'FLASH',    provider: 'default' };
+  return { pool: 'DEEPSEEK', provider: 'default' };
+}
+
+const readKeys = (name) =>
+  (process.env[name] || '').split(',').map(k => k.trim()).filter(Boolean);
+
+function buildKeyPool(modelName) {
+  const { pool } = resolveModel(modelName);
+  const order = POOL_FALLBACK[pool] || [pool];
+  const keys = order.flatMap(p => [...readKeys(`${p}_API_KEYS`), ...readKeys(`${p}_API_KEY`)]);
+  return [...new Set(keys)];
+}
+
 function getAIClient(modelName = '', keyIndex = 0) {
-  if (modelName.includes('nemotron') || modelName.includes('openrouter') || modelName.includes('nvidia/')) {
-    const openrouterKey = process.env.OPENROUTER_API_KEY;
-    const openrouterBase = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+  const { provider } = resolveModel(modelName);
+
+  if (provider === 'openrouter') {
+    const apiKey = process.env.OPENROUTER_API_KEY;
     return {
       client: new OpenAI({
-        baseURL: openrouterBase,
-        apiKey: openrouterKey,
-        defaultHeaders: {
-          'HTTP-Referer': 'http://localhost:3000',
-          'X-Title': 'Novel Comic Translator'
-        }
+        baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+        apiKey,
+        defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'Novel Comic Translator' }
       }),
-      apiKey: openrouterKey
+      apiKey
     };
   }
 
-  const getKeysFromEnv = (varName) => (process.env[varName] || '').split(',').map(k => k.trim()).filter(Boolean);
-  
-  let keyPool = [];
-  if (modelName.includes('flash')) {
-    keyPool = [...getKeysFromEnv('FLASH_API_KEYS'), ...getKeysFromEnv('FLASH_API_KEY'), ...getKeysFromEnv('DEEPSEEK_API_KEYS'), ...getKeysFromEnv('DEEPSEEK_API_KEY'), ...getKeysFromEnv('MINIMAX_API_KEYS'), ...getKeysFromEnv('MINIMAX_API_KEY')];
-  } else if (modelName.includes('minimax')) {
-    keyPool = [...getKeysFromEnv('MINIMAX_API_KEYS'), ...getKeysFromEnv('MINIMAX_API_KEY'), ...getKeysFromEnv('DEEPSEEK_API_KEYS'), ...getKeysFromEnv('DEEPSEEK_API_KEY'), ...getKeysFromEnv('FLASH_API_KEYS'), ...getKeysFromEnv('FLASH_API_KEY')];
-  } else {
-    keyPool = [...getKeysFromEnv('DEEPSEEK_API_KEYS'), ...getKeysFromEnv('DEEPSEEK_API_KEY'), ...getKeysFromEnv('FLASH_API_KEYS'), ...getKeysFromEnv('FLASH_API_KEY'), ...getKeysFromEnv('MINIMAX_API_KEYS'), ...getKeysFromEnv('MINIMAX_API_KEY')];
+  const all = buildKeyPool(modelName);
+  let usable = all.filter(k => !isKeyExhausted(k));
+  if (usable.length === 0 && all.length > 0) {
+    all.forEach(k => exhaustedKeys.delete(k));
+    usable = all;
   }
 
-  const validKeys = [...new Set(keyPool)];
-  const activeKeys = validKeys.filter(k => !isKeyExhausted(k));
-  
-  // NẾU TẤT CẢ KEY TRONG KHO ĐỀU HẾT -> TỰ ĐỘNG KHÔI PHỤC VÀ QUAY VỀ KEY #1
-  if (activeKeys.length === 0 && validKeys.length > 0) {
-    validKeys.forEach(k => exhaustedKeys.delete(k));
-  }
-
-  const keysToUse = activeKeys.length > 0 ? activeKeys : validKeys;
-
-  const apiKey = keysToUse[keyIndex % keysToUse.length] || process.env.DEEPSEEK_API_KEY;
-  return {
-    client: new OpenAI({ baseURL: process.env.AI_BASE_URL, apiKey }),
-    apiKey
-  };
+  const apiKey = usable[keyIndex % usable.length] || process.env.DEEPSEEK_API_KEY;
+  return { client: new OpenAI({ baseURL: process.env.AI_BASE_URL, apiKey }), apiKey };
 }
 
-// Đếm tổng số key khả dụng cho một model
 function getKeyCount(modelName = '') {
-  const getKeysFromEnv = (varName) => (process.env[varName] || '').split(',').map(k => k.trim()).filter(Boolean);
-  let keyPool = [];
-  if (modelName.includes('nemotron') || modelName.includes('openrouter') || modelName.includes('nvidia/')) return 1;
-  if (modelName.includes('flash')) {
-    keyPool = [...getKeysFromEnv('FLASH_API_KEYS'), ...getKeysFromEnv('FLASH_API_KEY'), ...getKeysFromEnv('DEEPSEEK_API_KEYS'), ...getKeysFromEnv('DEEPSEEK_API_KEY'), ...getKeysFromEnv('MINIMAX_API_KEYS'), ...getKeysFromEnv('MINIMAX_API_KEY')];
-  } else if (modelName.includes('minimax')) {
-    keyPool = [...getKeysFromEnv('MINIMAX_API_KEYS'), ...getKeysFromEnv('MINIMAX_API_KEY'), ...getKeysFromEnv('DEEPSEEK_API_KEYS'), ...getKeysFromEnv('DEEPSEEK_API_KEY'), ...getKeysFromEnv('FLASH_API_KEYS'), ...getKeysFromEnv('FLASH_API_KEY')];
-  } else {
-    keyPool = [...getKeysFromEnv('DEEPSEEK_API_KEYS'), ...getKeysFromEnv('DEEPSEEK_API_KEY'), ...getKeysFromEnv('FLASH_API_KEYS'), ...getKeysFromEnv('FLASH_API_KEY'), ...getKeysFromEnv('MINIMAX_API_KEYS'), ...getKeysFromEnv('MINIMAX_API_KEY')];
-  }
-  const validKeys = [...new Set(keyPool)];
-  const activeKeys = validKeys.filter(k => !isKeyExhausted(k));
-  return (activeKeys.length > 0 ? activeKeys : validKeys).length || 1;
+  if (resolveModel(modelName).provider === 'openrouter') return 1;
+  const all = buildKeyPool(modelName);
+  const usable = all.filter(k => !isKeyExhausted(k));
+  return (usable.length || all.length) || 1;
+}
+
+// Gọi AI lấy kết quả trọn gói, không đẩy ra client (dùng cho bước hậu kỳ / glossary)
+async function callAIQuiet(model, messages, options = {}) {
+  return streamAIWithRotation(model, messages, null, options);
 }
 
 // 🔄 HÀM GỌI AI & STREAM TỰ ĐỘNG XOAY VÒNG KEY VÀ MODEL DỰ PHÒNG
@@ -287,14 +300,23 @@ async function fetchMultipleUrls(urlsText) {
 // API 1: DỊCH TRUYỆN CHỮ — QUY TRÌNH 5 GIAI ĐOẠN CHUYÊN NGHIỆP
 // ==========================================
 app.post('/api/translate-stream', async (req, res) => {
-  const { urlsSampleEn, urlsSampleVi, urlNewEn, userInstructions, translateModel, reviewModel, fallbackModel } = req.body;
+  const {
+    urlsSampleEn, urlsSampleVi, urlNewEn, userInstructions,
+    translateModel, reviewModel, fallbackModel,
+    seriesName, chapterNumber
+  } = req.body;
+
   if (!urlsSampleEn || !urlsSampleVi || !urlNewEn) {
     return res.status(400).json({ error: 'Thiếu dữ liệu đầu vào!' });
   }
   
-  const MODEL_TRANSLATE = translateModel || 'deepseek/deepseek-v4-flash';
-  const MODEL_REVIEW = reviewModel || 'minimax/minimax-m3';
-  const MODEL_FALLBACK = fallbackModel || 'minimax/minimax-m3';
+  const SERIES  = (seriesName || '').trim();
+  const CHAPTER = Number(chapterNumber) || 0;
+  const useGlossary = SERIES.length > 0;
+
+  const MODEL_TRANSLATE = translateModel || 'deepseek/deepseek-v4-pro';
+  const MODEL_REVIEW    = reviewModel    || 'minimax/minimax-m3';
+  const MODEL_FALLBACK  = fallbackModel  || 'deepseek/deepseek-v4-flash';
   
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -342,6 +364,25 @@ app.post('/api/translate-stream', async (req, res) => {
     sendChunk(newEnText);
     sendStatus(`✅ Đã cào được ${newEnText.length.toLocaleString()} ký tự. Bắt đầu Quy Trình 5 Giai Đoạn...`);
 
+    // Nạp sổ thuật ngữ nếu có
+    let glossary = null;
+    let glossaryBlock = '';
+
+    if (useGlossary) {
+      sendStatus(`📖 Đang nạp sổ thuật ngữ của "${SERIES}"...`);
+      try {
+        glossary = await loadGlossary(SERIES);
+        glossaryBlock = renderForPrompt(glossary, CHAPTER);
+        const nChar = glossary.terms.characters.length;
+        const nPair = Object.keys(glossary.address).length;
+        sendStatus(nChar || nPair
+          ? `✅ Sổ thuật ngữ: ${nChar} nhân vật, ${nPair} cặp xưng hô (hiệu lực tại chương ${CHAPTER}).`
+          : `📖 Bộ truyện mới, sổ thuật ngữ sẽ được tạo sau chương này.`);
+      } catch (err) {
+        sendStatus(`⚠️ Không đọc được sổ thuật ngữ: ${err.message}. Vẫn dịch bình thường.`);
+      }
+    }
+
     // ==========================================
     // GĐ 1: CHUẨN BỊ & NGHIÊN CỨU
     // ==========================================
@@ -379,7 +420,7 @@ Nhiệm vụ: Đọc toàn bộ [BẢN MẪU ANH] và [BẢN MẪU VIỆT], phâ
         },
         { 
           role: "user", 
-          content: `=== BẢN MẪU ANH ===\n${sampleEnCombined}\n\n=== BẢN MẪU VIỆT ===\n${sampleViCombined}\n\n=== GÓP Ý BỔ SUNG CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có (Tự động phân tích theo bản mẫu)'}\n\n=== TÀI LIỆU CHUẨN BỊ DỊCH:` 
+          content: `${glossaryBlock ? `=== 📕 SỔ THUẬT NGỮ ĐÃ CHỐT (ƯU TIÊN TUYỆT ĐỐI, KHÔNG ĐƯỢC ĐỔI) ===\n${glossaryBlock}\n\n⚠️ Các mục trên đã dùng ở những chương trước. Bảng thuật ngữ bạn lập PHẢI kế thừa y nguyên, chỉ bổ sung mục mới, TUYỆT ĐỐI không dịch lại khác đi.\n\n` : ''}=== BẢN MẪU ANH ===\n${sampleEnCombined}\n\n=== BẢN MẪU VIỆT ===\n${sampleViCombined}\n\n=== GÓP Ý BỔ SUNG CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có (Tự động phân tích theo bản mẫu)'}\n\n=== TÀI LIỆU CHUẨN BỊ DỊCH:` 
         }
       ],
       (chunk) => sendChunk(chunk),
@@ -398,6 +439,11 @@ Nhiệm vụ: Đọc toàn bộ [BẢN MẪU ANH] và [BẢN MẪU VIỆT], phâ
       if (enChunks.length > 1) {
         sendStatus(`✍️ GĐ 2: Đang dịch thô phần ${i + 1}/${enChunks.length}...`);
       }
+
+      const prevTail = i > 0 && draftChunks[i - 1] ? draftChunks[i - 1].slice(-400) : '';
+      const continuityBlock = prevTail
+        ? `=== ĐUÔI BẢN DỊCH PHẦN TRƯỚC (chỉ để nối mạch, KHÔNG dịch lại) ===\n...${prevTail}\n\n`
+        : '';
       
       const isSubsequentChunk = i > 0;
       const systemInstruction = isSubsequentChunk
@@ -407,7 +453,8 @@ LỆNH BẮT BUỘC:
 2. Dịch thẳng từ câu đầu tiên của phần này.
 3. KHÔNG tóm tắt, KHÔNG cắt xén, KHÔNG bịa thêm.
 4. Với thành ngữ, chơi chữ, yếu tố văn hóa đặc thù: đánh dấu [⚠️] bên cạnh để biên tập viên xử lý kỹ ở bước sau.
-5. CHỈ TRẢ VỀ DUY NHẤT văn bản dịch nối tiếp.`
+5. CHỈ TRẢ VỀ DUY NHẤT văn bản dịch nối tiếp.
+6. Nối liền mạch văn phong và xưng hô với [ĐUÔI BẢN DỊCH PHẦN TRƯỚC]. Không được đổi cách xưng hô giữa chương.`
         : `Bạn là phiên dịch viên văn học cao cấp. Dịch ĐẦY ĐỦ 100% phần mở đầu chương này.
 LỆNH BẮT BUỘC:
 1. Dịch chính xác từng câu. KHÔNG bịa thêm tình tiết.
@@ -424,7 +471,7 @@ LỆNH BẮT BUỘC:
         MODEL_TRANSLATE,
         [
           { role: "system", content: systemInstruction },
-          { role: "user", content: `=== TÀI LIỆU CHUẨN BỊ DỊCH (GĐ 1) ===\n${styleGuide}\n\n=== GÓP Ý CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có'}\n\n=== CHƯƠNG MỚI (TIẾNG ANH - PHẦN ${i + 1}/${enChunks.length}) ===\n${enChunks[i]}\n\n=== BẢN DỊCH:` }
+          { role: "user", content: `${glossaryBlock ? `=== 📕 SỔ THUẬT NGỮ ĐÃ CHỐT ===\n${glossaryBlock}\n\n` : ''}=== TÀI LIỆU CHUẨN BỊ DỊCH (GĐ 1) ===\n${styleGuide}\n\n${continuityBlock}=== GÓP Ý CỦA NGƯỜI DÙNG ===\n${userInstructions || 'Không có'}\n\n=== CHƯƠNG MỚI (TIẾNG ANH - PHẦN ${i + 1}/${enChunks.length}) ===\n${enChunks[i]}\n\n=== BẢN DỊCH:` }
         ],
         (content) => {
           if (isSubsequentChunk && !titleChecked) {
@@ -491,6 +538,7 @@ LỆNH BẮT BUỘC:
         const editSystemPrompt = `Bạn là Biên Tập Viên Văn Học Chuyên Nghiệp.
 Nhiệm vụ: Đọc [BẢN DỊCH THÔ PHẦN ${cIdx + 1}/${enChunks.length}], đối chiếu từng câu với [VĂN BẢN GỐC TIẾNG ANH PHẦN ${cIdx + 1}/${enChunks.length}] và [TÀI LIỆU CHUẨN BỊ DỊCH].
 
+${glossaryBlock ? `⚠️ BẢNG THUẬT NGỮ ĐÃ CHỐT (TUYỆT ĐỐI TUÂN THỦ):\n${glossaryBlock}\n` : ''}
 ${loopCount > 1 ? `⚠️ ĐÂY LÀ LẦN BIÊN TẬP THỨ ${loopCount}. Tham khảo [LỜI PHÊ BÌNH LẦN TRƯỚC] để sửa đúng trọng tâm.\n\n[LỜI PHÊ BÌNH LẦN TRƯỚC]:\n${previousCritique}\n` : ''}
 
 QUY TRÌNH BIÊN TẬP BẮT BUỘC:
@@ -658,6 +706,44 @@ QUY TẮC:
     sendNewBox(`🏆 GĐ 5: BẢN DỊCH HOÀN THIỆN — CHỐT HẠ CUỐI CÙNG`, "color-gd5");
     const finalCleanText = cleanDuplicateTranslation(bestDraft);
     sendChunk(finalCleanText);
+
+    // Cập nhật sổ thuật ngữ tự động từ chương vừa dịch
+    if (useGlossary && glossary) {
+      sendStatus('📝 Đang cập nhật sổ thuật ngữ từ chương này...');
+      const report = await updateGlossaryFromChapter(
+        glossary, CHAPTER, newEnText, finalCleanText,
+        (messages, opts) => callAIQuiet(MODEL_REVIEW, messages, opts),
+        { fallbackModel: MODEL_FALLBACK }
+      );
+
+      if (report.error) {
+        sendStatus(`⚠️ ${report.error}`);
+      } else {
+        try {
+          await saveGlossary(SERIES, glossary);
+        } catch (e) {
+          sendStatus(`⚠️ Không lưu được sổ thuật ngữ: ${e.message}`);
+        }
+
+        if (report.newTerms && report.newTerms.length) {
+          sendNewBox('📕 Thuật ngữ mới ghi nhận', 'color-gd1');
+          sendChunk(report.newTerms.join('\n'));
+        }
+        if (report.addressChanges && report.addressChanges.length) {
+          sendNewBox('💬 Xưng hô chuyển giai đoạn', 'color-gd3');
+          sendChunk(report.addressChanges.join('\n'));
+        }
+        if (report.conflicts && report.conflicts.length) {
+          sendNewBox('⚠️ Xung đột thuật ngữ (cần bạn quyết)', 'color-gd3');
+          sendChunk(report.conflicts.map(c =>
+            `"${c.en}": sổ đang ghi "${c.existing}", chương này dịch "${c.proposed}" → đã giữ bản cũ`
+          ).join('\n'));
+        }
+        if (report.skipped && report.skipped.length) {
+          sendStatus(`ℹ️ Bỏ qua ${report.skipped.length} thay đổi thiếu căn cứ.`);
+        }
+      }
+    }
 
     res.end();
   } catch (error) {

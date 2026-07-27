@@ -6,3 +6,5 @@ __pycache__/
 public/*.jpg
 public/*.png
 !public/index.html
+data/
+

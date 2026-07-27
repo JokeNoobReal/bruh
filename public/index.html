@@ -226,6 +226,24 @@
         <label style="color: #a78bfa; margin-top: 15px;">💬 Góp ý & Chỉ đạo bổ sung cho AI (Tùy chọn):</label>
         <textarea id="userInstructions" placeholder="Ví dụ: Đổi xưng hô Nukumizu - Yanami thành cậu/tớ; giữ văn phong khô khan deadpan; dịch các cảnh hài hước tự nhiên hơn..." style="height: 60px;"></textarea>
 
+        <!-- SỔ THUẬT NGỮ & TÊN BỘ TRUYỆN -->
+        <div style="background: #0f172a; border: 1px solid #0284c7; border-radius: 8px; padding: 15px; margin-top: 15px; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="margin: 0; font-size: 15px; color: #38bdf8;">📕 Sổ Thuật Ngữ & Quản Lý Bộ Truyện</h3>
+                <a href="/glossary.html" target="_blank" style="background: #0284c7; color: white; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; transition: background 0.2s;">📖 Mở Trang Quản Lý Sổ Thuật Ngữ ↗</a>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                <div>
+                    <label style="font-size: 13px; color: #94a3b8;">Tên Bộ Truyện (Ví dụ: Makeine, Classroom of the Elite):</label>
+                    <input type="text" id="seriesName" placeholder="Nhập tên bộ truyện để nạp & cập nhật sổ thuật ngữ tự động..." style="margin-bottom: 0;">
+                </div>
+                <div>
+                    <label style="font-size: 13px; color: #94a3b8;">Số Chương Đang Dịch (Ví dụ: 1, 5, 12):</label>
+                    <input type="number" id="chapterNumber" placeholder="Ví dụ: 1" value="1" style="margin-bottom: 0;">
+                </div>
+            </div>
+        </div>
+
         <!-- BẢNG CẤU HÌNH MODEL AI -->
         <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-top: 15px; margin-bottom: 15px;">
             <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 15px; color: #38bdf8;">⚙️ Tùy Chọn Model AI Cho Các Đặc Vụ</h3>
@@ -439,6 +457,8 @@
             const urlsSampleVi = document.getElementById('urlsSampleVi').value.trim();
             const urlNewEn = document.getElementById('urlNewEn').value.trim();
             const userInstructions = document.getElementById('userInstructions').value.trim();
+            const seriesName = (document.getElementById('seriesName')?.value || '').trim();
+            const chapterNumber = document.getElementById('chapterNumber')?.value || '1';
             
             const translateModel = document.getElementById('translateModel').value;
             const reviewModel = document.getElementById('reviewModel').value;
@@ -455,6 +475,8 @@
             localStorage.setItem('urlsSampleEn', urlsSampleEn);
             localStorage.setItem('urlsSampleVi', urlsSampleVi);
             localStorage.setItem('userInstructions', userInstructions);
+            localStorage.setItem('seriesName', seriesName);
+            localStorage.setItem('chapterNumber', chapterNumber);
             localStorage.setItem('translateModel', translateModel);
             localStorage.setItem('reviewModel', reviewModel);
             localStorage.setItem('fallbackModel', fallbackModel);
@@ -470,7 +492,11 @@
                 const response = await fetch('/api/translate-stream', {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urlsSampleEn, urlsSampleVi, urlNewEn, userInstructions, translateModel, reviewModel, fallbackModel }),
+                    body: JSON.stringify({
+                        urlsSampleEn, urlsSampleVi, urlNewEn, userInstructions,
+                        translateModel, reviewModel, fallbackModel,
+                        seriesName, chapterNumber
+                    }),
                     signal: currentAbortController.signal
                 });
 
@@ -770,6 +796,16 @@
                 btn.innerHTML = '🎨 Tiến Hành Quét OCR & Dịch';
             }
         }
+        window.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('urlsSampleEn')) document.getElementById('urlsSampleEn').value = localStorage.getItem('urlsSampleEn');
+            if (localStorage.getItem('urlsSampleVi')) document.getElementById('urlsSampleVi').value = localStorage.getItem('urlsSampleVi');
+            if (localStorage.getItem('userInstructions')) document.getElementById('userInstructions').value = localStorage.getItem('userInstructions');
+            if (localStorage.getItem('seriesName')) document.getElementById('seriesName').value = localStorage.getItem('seriesName');
+            if (localStorage.getItem('chapterNumber')) document.getElementById('chapterNumber').value = localStorage.getItem('chapterNumber');
+            if (localStorage.getItem('translateModel')) document.getElementById('translateModel').value = localStorage.getItem('translateModel');
+            if (localStorage.getItem('reviewModel')) document.getElementById('reviewModel').value = localStorage.getItem('reviewModel');
+            if (localStorage.getItem('fallbackModel')) document.getElementById('fallbackModel').value = localStorage.getItem('fallbackModel');
+        });
     </script>
 </body>
 </html>
