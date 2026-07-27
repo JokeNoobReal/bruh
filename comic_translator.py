@@ -481,6 +481,35 @@ FORMAT ĐẦU RA:
     print(f"[STATUS]🏆 GĐ 5/5: Duyệt & phát hành (Hoàn tất trang ảnh dịch hoàn chỉnh)![/STATUS]", flush=True)
     return "/" + output_filename
 
+def build_clients():
+    """Dựng danh sách OpenAI client từ .env (tách khỏi main() để worker tái dùng)."""
+    api_base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
+    raw_keys = []
+    for var in ["FLASH_API_KEYS", "DEEPSEEK_API_KEYS", "MINIMAX_API_KEYS",
+                "FLASH_API_KEY", "DEEPSEEK_API_KEY", "MINIMAX_API_KEY"]:
+        val = os.getenv(var, "")
+        if val:
+            raw_keys.extend([k.strip() for k in val.split(",") if k.strip()])
+
+    valid_keys = []
+    for k in raw_keys:
+        if k not in valid_keys:
+            valid_keys.append(k)
+
+    clients = [OpenAI(base_url=api_base_url, api_key=k) for k in valid_keys]
+
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_key:
+        clients.append(OpenAI(
+            base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            api_key=openrouter_key,
+            default_headers={
+                "HTTP-Referer": "http://localhost:3000",
+                "X-Title": "Novel Comic Translator",
+            },
+        ))
+    return clients
+
 def main():
     try:
         if len(sys.argv) < 2:
@@ -491,31 +520,7 @@ def main():
         source_lang = sys.argv[2] if len(sys.argv) > 2 else 'en'
         user_instructions = sys.argv[3] if len(sys.argv) > 3 else ""
         
-        api_base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
-        raw_keys = []
-        for var in ["FLASH_API_KEYS", "DEEPSEEK_API_KEYS", "MINIMAX_API_KEYS", "FLASH_API_KEY", "DEEPSEEK_API_KEY", "MINIMAX_API_KEY"]:
-            val = os.getenv(var, "")
-            if val:
-                raw_keys.extend([k.strip() for k in val.split(",") if k.strip()])
-        
-        valid_keys = []
-        for k in raw_keys:
-            if k not in valid_keys:
-                valid_keys.append(k)
-        
-        clients = [OpenAI(base_url=api_base_url, api_key=k) for k in valid_keys]
-        
-        openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        if openrouter_key:
-            openrouter_base = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-            clients.append(OpenAI(
-                base_url=openrouter_base,
-                api_key=openrouter_key,
-                default_headers={
-                    "HTTP-Referer": "http://localhost:3000",
-                    "X-Title": "Novel Comic Translator"
-                }
-            ))
+        clients = build_clients()
 
         if not clients:
             print("Lỗi: Không tìm thấy API Key nào trong file .env")

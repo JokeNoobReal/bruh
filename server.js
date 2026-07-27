@@ -13,6 +13,7 @@ import { streamAIWithRotation, callAIQuiet, getAIClient } from './services/ai.js
 import { fetchTextFromUrl, fetchMultipleUrls, fetchPairSamples } from './services/scraper.js';
 import { requireApiAuth, configureCors } from './services/auth.js';
 import { startAutoCleanupCron } from './services/cleanup.js';
+import { ocrWorker, warmupOcrWorker } from './services/ocr-worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +34,9 @@ if (!fs.existsSync('public')) fs.mkdirSync('public');
 
 // Khởi động cron tự động dọn dẹp file tạm cũ (>1 giờ) định kỳ mỗi 15 phút
 startAutoCleanupCron();
+
+// Làm nóng sẵn OCR Worker daemon
+warmupOcrWorker();
 
 // Cấu hình thư mục nhận ảnh truyện tranh
 const upload = multer({
@@ -812,48 +816,25 @@ app.post('/api/translate-comic', upload.single('image'), async (req, res) => {
     return res.end();
   }
 
-  const allPathsStr = imagesToProcess.map(img => img.path).join(',');
+  const allPaths = imagesToProcess.map(img => img.path);
   sendEvent('status', `🎨 Đã sẵn sàng. Bắt đầu OCR & Dịch ${imagesToProcess.length} trang truyện tranh...`);
 
-  let pythonStdout = '';
-  let pythonStderr = '';
+  try {
+    const results = await ocrWorker.translate({
+      images: allPaths,
+      lang,
+      instructions: userInstructions,
+      onStatus: (text) => sendEvent('status', text),
+      onPage: (page) => sendEvent('page_done', page),
+    });
 
-  spawnPythonScript(['comic_translator.py', allPathsStr, lang, userInstructions], (stdoutChunk) => {
-    pythonStdout += stdoutChunk;
-    const lines = stdoutChunk.split('\n');
-    for (const line of lines) {
-      if (line.includes('[STATUS]')) {
-        const msg = line.replace(/.*\[STATUS\]/, '').replace(/\[\/STATUS\].*/, '').trim();
-        if (msg) sendEvent('status', msg);
-      }
-      if (line.includes('[PAGE_DONE]')) {
-        const jsonStr = line.replace(/.*\[PAGE_DONE\]/, '').replace(/\[\/PAGE_DONE\].*/, '').trim();
-        try {
-          const pageData = JSON.parse(jsonStr);
-          sendEvent('page_done', pageData);
-        } catch (e) {}
-      }
-    }
-  }, (stderrChunk) => {
-    pythonStderr += stderrChunk;
-    console.warn("Python stderr:", stderrChunk);
-  }, (code) => {
+    sendEvent('finished', `🎉 Đã hoàn tất dịch toàn bộ ${results?.length || imagesToProcess.length} trang!`);
+  } catch (err) {
+    sendEvent('error', `Lỗi dịch truyện tranh: ${err.message}`);
+  } finally {
     imagesToProcess.forEach(img => fs.unlink(img.path, () => {}));
-    if (code === 0) {
-      sendEvent('finished', `🎉 Đã hoàn tất dịch toàn bộ ${imagesToProcess.length} trang!`);
-    } else {
-      let errMsg = `Quá trình dịch ảnh kết thúc với mã lỗi (${code}).`;
-      const errMatch = pythonStdout.match(/❌ Lỗi[^\n]+/);
-      if (errMatch) {
-        errMsg = errMatch[0];
-      } else if (pythonStderr.trim()) {
-        const lastErrLine = pythonStderr.trim().split('\n').filter(l => l.trim() && !l.includes('UserWarning')).pop();
-        if (lastErrLine) errMsg = `Lỗi Python: ${lastErrLine}`;
-      }
-      sendEvent('error', errMsg);
-    }
     res.end();
-  });
+  }
 });
 
 const PORT = 3000;
