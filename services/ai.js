@@ -107,6 +107,7 @@ export function getKeyCount(modelName = '') {
 export async function streamAIWithRotation(modelName, messages, onChunk, options = {}) {
   const temperature = options.temperature ?? 0.3;
   const fallbackModel = options.fallbackModel || null;
+  const timeoutMs = Number(options.timeoutMs || 180_000);
 
   const modelsToTry = [modelName];
   if (fallbackModel && fallbackModel !== modelName) {
@@ -121,6 +122,14 @@ export async function streamAIWithRotation(modelName, messages, onChunk, options
     for (let attempt = 0; attempt < totalKeys; attempt++) {
       let accumulatedText = "";
       let currentApiKey = "";
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      // Connect external signal to internal controller
+      if (options.signal) {
+        options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+
       try {
         const { client, apiKey } = getAIClient(currentModel, attempt);
         currentApiKey = apiKey;
@@ -129,10 +138,12 @@ export async function streamAIWithRotation(modelName, messages, onChunk, options
           model: currentModel,
           messages,
           temperature,
-          stream: true
+          stream: true,
+          signal: controller.signal,
         });
 
         for await (const chunk of stream) {
+          if (controller.signal.aborted) break;
           const content = chunk.choices[0]?.delta?.content || "";
           if (content) {
             accumulatedText += content;
@@ -150,12 +161,21 @@ export async function streamAIWithRotation(modelName, messages, onChunk, options
         const errStr = (err.message || "").toLowerCase();
         const isQuotaOrRateLimit = err.status === 429 || errStr.includes("quota") || errStr.includes("rate limit") || errStr.includes("insufficient_user_quota");
 
+        // Fatal client errors (400 Bad Request, 404 Model Not Found, 422 Invalid Payload) should NOT be retried
+        const isNonRetryable = err.status === 400 || err.status === 404 || err.status === 422;
+        if (isNonRetryable || err.name === 'AbortError') {
+          console.warn(`🛑 Lỗi không thể thử lại (${err.status || err.name}): ${err.message}. Dừng xoay vòng.`);
+          throw err;
+        }
+
         if (isQuotaOrRateLimit && currentApiKey) {
           markKeyExhausted(currentApiKey);
           console.warn(`⚠️ Key #${attempt + 1} cho model [${currentModel}] bị rate limit (429). Đang chuyển sang Key tiếp theo...`);
         } else {
           console.warn(`⚠️ Key #${attempt + 1} cho model [${currentModel}] gặp sự cố (${err.message}). Thử Key tiếp theo...`);
         }
+      } finally {
+        clearTimeout(timer);
       }
     }
 

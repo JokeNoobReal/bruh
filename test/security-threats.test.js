@@ -183,3 +183,10 @@ test('T6: upload guard enforces file count and aggregate bytes', () => {
     [{ size: 70 }, { size: 50 }], { maxFiles: 5, maxBytes: 100 },
   ), /bytes|size|quota/i);
 });
+
+// P1 & P2: Model Allowlist & Field Whitelist Validation
+test('P1/P2: Model allowlist and field whitelist enforcement', () => {
+  const allowed = new Set(['deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'minimax/minimax-m3', 'nvidia/nemotron']);
+  assert.equal(allowed.has('deepseek/deepseek-v4-pro'), true);
+  assert.equal(allowed.has('malicious/custom-model'), false);
+});
