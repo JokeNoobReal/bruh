@@ -10,9 +10,9 @@ import multer from 'multer';
 import { execFile, spawn } from 'child_process';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
-import { loadGlossary, saveGlossary, renderForPrompt } from './glossary.js';
-import { updateGlossaryFromChapter } from './glossary-extract.js';
-import glossaryRoutes from './glossary-routes.js';
+import { loadGlossary, saveGlossary, renderForPrompt } from './services/glossary.js';
+import { updateGlossaryFromChapter } from './services/glossary-extract.js';
+import glossaryRoutes from './services/glossary-routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

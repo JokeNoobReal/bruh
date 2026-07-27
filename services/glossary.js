@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const GLOSSARY_DIR = path.join(__dirname, 'data', 'glossary');
+export const GLOSSARY_DIR = path.join(process.cwd(), 'data', 'glossary');
 
 /** Chuẩn hóa tên bộ truyện thành tên file an toàn */
 export function slugify(seriesName) {
