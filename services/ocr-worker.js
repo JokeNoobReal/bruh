@@ -7,7 +7,10 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-const PYTHON_BIN = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
+const PYTHON_CANDIDATES = process.env.PYTHON_BIN
+  ? [process.env.PYTHON_BIN]
+  : (process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python']);
+
 const READY_TIMEOUT_MS = Number(process.env.OCR_READY_TIMEOUT_MS || 180_000);
 const JOB_TIMEOUT_MS = Number(process.env.OCR_JOB_TIMEOUT_MS || 600_000);
 const IDLE_SHUTDOWN_MS = Number(process.env.OCR_IDLE_SHUTDOWN_MS || 0); // 0 = không tắt
@@ -21,6 +24,7 @@ class OcrWorker {
     this.current = null;
     this.idleTimer = null;
     this.restarts = 0;
+    this.activeBinIndex = 0;
   }
 
   // ── Vòng đời tiến trình ────────────────────────────────
@@ -30,7 +34,8 @@ class OcrWorker {
   }
 
   #start() {
-    const proc = spawn(PYTHON_BIN, ['comic_worker.py'], {
+    const bin = PYTHON_CANDIDATES[this.activeBinIndex % PYTHON_CANDIDATES.length];
+    const proc = spawn(bin, ['comic_worker.py'], {
       cwd: ROOT,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -49,10 +54,16 @@ class OcrWorker {
     readline.createInterface({ input: proc.stdout }).on('line', (l) => this.#onMessage(l));
     readline.createInterface({ input: proc.stderr }).on('line', (l) => this.#onLog(l));
 
-    proc.on('error', (err) => this.#onExit(err));
-    proc.on('exit', (code, sig) =>
-      this.#onExit(new Error(`OCR worker thoát (code=${code}, signal=${sig})`))
-    );
+    proc.on('error', (err) => {
+      this.activeBinIndex++;
+      this.#onExit(err);
+    });
+    proc.on('exit', (code, sig) => {
+      if (code === 9009 || code === 9008 || code === 127) {
+        this.activeBinIndex++;
+      }
+      this.#onExit(new Error(`OCR worker thoát (code=${code}, signal=${sig})`));
+    });
 
     return this.readyPromise;
   }
