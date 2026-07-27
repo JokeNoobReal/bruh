@@ -121,15 +121,17 @@ export function restoreLatest(seriesId) {
   return null;
 }
 
-// ─────────────────────────────────────────────
-// Khớp thuật ngữ trong văn bản (Unicode Word Regex)
-// ─────────────────────────────────────────────
-const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Khớp thuật ngữ an toàn với Unicode, hỗ trợ tiếng Việt có dấu
+const esc = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function wordRegex(name, flags = 'gi') {
-  const safeName = String(name || '');
-  const cleanFlags = flags.includes('u') ? flags : `${flags}u`;
-  return new RegExp(`(?<![\\p{L}\\p{N}])${esc(safeName)}(?![\\p{L}\\p{N}])`, cleanFlags);
+  const safeFlags = flags.includes('u') ? flags : `${flags}u`;
+
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${esc(name)}(?![\\p{L}\\p{N}])`,
+    safeFlags
+  );
 }
 
 export function namesOf(term) {
@@ -137,7 +139,11 @@ export function namesOf(term) {
 }
 
 export function appearsIn(text, term) {
-  return namesOf(term).some(n => wordRegex(n, 'i').test(text));
+  if (!text || !term) return false;
+
+  return namesOf(term).some((name) =>
+    wordRegex(name, 'i').test(String(text))
+  );
 }
 
 // ─────────────────────────────────────────────
