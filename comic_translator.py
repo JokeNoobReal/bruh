@@ -99,10 +99,17 @@ def get_border_mean_color(crop_img):
 
 def merge_adjacent_bboxes(valid_texts, y_threshold=35, x_threshold=40):
     """
-    Gom các ô chữ nằm sát nhau (thuộc cùng 1 bong bóng thoại) thành 1 ô hợp nhất duy nhất.
+    Gom các ô chữ nằm sát nhau (thuộc cùng 1 bong bóng thoại) thành 1 ô hợp nhất duy nhất
+    bằng cách tự động điều chỉnh ngưỡng theo chiều cao chữ (Adaptive Thresholds).
     """
     if not valid_texts:
         return []
+
+    # Ngưỡng động thích ứng theo kích thước chữ
+    heights = [abs(it["bbox"][2][1] - it["bbox"][0][1]) for it in valid_texts]
+    avg_h = np.mean(heights) if heights else 30.0
+    dyn_y = max(y_threshold, int(avg_h * 0.85))
+    dyn_x = max(x_threshold, int(avg_h * 1.1))
 
     # Sắp xếp các ô chữ theo vị trí Y từ trên xuống dưới
     sorted_items = sorted(valid_texts, key=lambda item: item["bbox"][0][1])
@@ -118,8 +125,8 @@ def merge_adjacent_bboxes(valid_texts, y_threshold=35, x_threshold=40):
             cx0, cy0, cx1, cy1 = cluster["bounds"]
             
             # Kiểm tra khoảng cách xem có thuộc cùng 1 bong bóng thoại hay không
-            vertical_near = (y0 <= cy1 + y_threshold) and (y1 >= cy0 - y_threshold)
-            horizontal_near = (x0 <= cx1 + x_threshold) and (x1 >= cx0 - x_threshold)
+            vertical_near = (y0 <= cy1 + dyn_y) and (y1 >= cy0 - dyn_y)
+            horizontal_near = (x0 <= cx1 + dyn_x) and (x1 >= cx0 - dyn_x)
 
             if vertical_near and horizontal_near:
                 cluster["bounds"] = [min(cx0, x0), min(cy0, y0), max(cx1, x1), max(cy1, y1)]
@@ -411,7 +418,10 @@ FORMAT ĐẦU RA:
     for item in merged_bubbles:
         idx = item["idx"]
         x0, y0, x1, y1 = item["bounds"]
-        translated_text = translations.get(idx, item["combined_text"])
+        if idx not in translations or not translations[idx].strip():
+            print(f"⚠️ CẢNH BÁO: Bong bóng thoại [{idx}] thiếu bản dịch. Bỏ qua không in đè chữ Anh chưa dịch.", flush=True)
+            continue
+        translated_text = translations[idx]
 
         x0 = max(0, x0 - 4)
         y0 = max(0, y0 - 4)

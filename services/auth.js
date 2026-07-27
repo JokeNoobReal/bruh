@@ -1,14 +1,27 @@
 // services/auth.js — API Authentication & Access Security
 import cors from 'cors';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Trong môi trường production, kiểm tra xem đã bật API_TOKEN chưa
+if (isProduction && !process.env.API_TOKEN) {
+  console.warn('⚠️ [SECURITY CAUTION] NODE_ENV=production nhưng chưa đặt API_TOKEN! Khuyến nghị đặt API_TOKEN để bảo vệ endpoint.');
+}
+
 /**
- * Middleware kiểm tra API Token nếu được bật trong môi trường (.env)
+ * Middleware kiểm tra API Token
  */
 export function requireApiAuth(req, res, next) {
   const configuredToken = process.env.API_TOKEN;
-  // Nếu không cấu hình API_TOKEN trong env -> bỏ qua auth (chế độ tự do / local)
+
+  // Nếu không cấu hình API_TOKEN
   if (!configuredToken) {
-    return next();
+    if (isProduction) {
+      return res.status(401).json({
+        error: 'Unauthorized: Server đang chạy chế độ production bắt buộc phải cấu hình API_TOKEN.'
+      });
+    }
+    return next(); // Cho phép truy cập mở ở chế độ local / dev
   }
 
   const tokenFromHeader = req.headers['x-api-token'];
@@ -19,7 +32,7 @@ export function requireApiAuth(req, res, next) {
 
   if (!providedToken || providedToken !== configuredToken) {
     return res.status(401).json({
-      error: 'Unauthorized: API Token không chính xác hoặc thiếu token xác thực. Đặt x-api-token trong header hoặc query param ?token='
+      error: 'Unauthorized: API Token không chính xác hoặc thiếu token xác thực. Truyền x-api-token trong header hoặc query param ?token='
     });
   }
 
@@ -36,7 +49,10 @@ export function configureCors() {
     .filter(Boolean);
 
   if (allowedOrigins.length === 0) {
-    return cors(); // Mặc định mở nếu chưa đặt restriction
+    if (isProduction) {
+      console.warn('⚠️ [SECURITY CAUTION] Chưa cấu hình ALLOWED_ORIGINS trong môi trường production!');
+    }
+    return cors();
   }
 
   return cors({

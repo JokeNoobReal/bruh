@@ -20,12 +20,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(configureCors());
 app.use(express.json({ limit: '50mb' }));
-app.use('/api/glossary', requireApiAuth, glossaryRoutes);
-app.use(express.static(path.join(__dirname, 'public')));
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Quá nhiều request. Vui lòng chờ 1 phút.' } });
 app.use('/api/', limiter);
 app.use('/api/', requireApiAuth);
+app.use('/api/glossary', glossaryRoutes);
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Đảm bảo thư mục uploads và public tồn tại
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
