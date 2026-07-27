@@ -140,7 +140,9 @@ export function namesOf(term) {
 
 export function appearsIn(text, term) {
   if (!text || !term) return false;
-  return namesOf(term).some(name => wordRegex(name, 'i').test(String(text)));
+  return namesOf(term).some(name =>
+    wordRegex(name, 'i').test(String(text))
+  );
 }
 
 // ─────────────────────────────────────────────
