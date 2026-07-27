@@ -127,7 +127,9 @@ export function restoreLatest(seriesId) {
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function wordRegex(name, flags = 'gi') {
-  return new RegExp(`(?<![\\p{L}\\p{N}])${esc(name)}(?![\\p{L}\\p{N}])`, flags + 'u');
+  const safeName = String(name || '');
+  const cleanFlags = flags.includes('u') ? flags : `${flags}u`;
+  return new RegExp(`(?<![\\p{L}\\p{N}])${esc(safeName)}(?![\\p{L}\\p{N}])`, cleanFlags);
 }
 
 export function namesOf(term) {
