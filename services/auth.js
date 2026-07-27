@@ -11,6 +11,8 @@ if (isProduction && !process.env.API_TOKEN) {
 /**
  * Middleware kiểm tra API Token
  */
+import crypto from 'crypto';
+
 export function requireApiAuth(req, res, next) {
   const isProduction = process.env.NODE_ENV === 'production';
   const configuredToken = process.env.API_TOKEN;
@@ -22,6 +24,8 @@ export function requireApiAuth(req, res, next) {
         error: 'Unauthorized: Server đang chạy chế độ production bắt buộc phải cấu hình API_TOKEN.'
       });
     }
+    const tenantHeader = req.headers['x-tenant-id'];
+    req.tenantId = tenantHeader ? String(tenantHeader).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) : 'default-tenant';
     return next(); // Cho phép truy cập mở ở chế độ local / dev
   }
 
@@ -34,9 +38,14 @@ export function requireApiAuth(req, res, next) {
 
   if (!providedToken || providedToken !== configuredToken) {
     return res.status(401).json({
-      error: 'Unauthorized: API Token không chính xác hoặc thiếu token xác thực. Truyền x-api-token trong header hoặc query param ?token='
+      error: 'Unauthorized: API Token không chính xác hoặc thiếu token xác thực.'
     });
   }
+
+  const tenantHeader = req.headers['x-tenant-id'];
+  req.tenantId = tenantHeader
+    ? String(tenantHeader).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32)
+    : crypto.createHash('sha256').update(providedToken).digest('hex').slice(0, 16);
 
   next();
 }

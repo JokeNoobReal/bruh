@@ -14,12 +14,18 @@ export function buildUntrustedBlock(label, value, maxChars = MAX_INPUT_CHARS) {
 }
 
 export function securityHeadersMiddleware(req, res, next) {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  if (res.locals) res.locals.nonce = nonce;
+
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'self';");
+  res.setHeader(
+    'Content-Security-Policy',
+    `default-src 'self'; frame-ancestors 'none'; script-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'self';`
+  );
   next();
 }
 

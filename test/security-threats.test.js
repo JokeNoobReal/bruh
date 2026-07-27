@@ -16,6 +16,7 @@ function responseMock() {
     statusCode: 200,
     body: null,
     headers,
+    locals: {},
     setHeader(name, val) { headers[name.toLowerCase()] = val; return this; },
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
@@ -108,12 +109,13 @@ test('T4: production auth accepts header token only', () => {
 });
 
 // V3.4 & V3.4.2: Security Headers & CORS Fail-Closed
-test('V3.4: securityHeadersMiddleware sets HSTS, CSP, nosniff, frame-ancestors, referrer policy', () => {
+test('V3.4: securityHeadersMiddleware sets HSTS, CSP nonce, nosniff, frame-ancestors, referrer policy', () => {
   const res = responseMock();
   securityHeadersMiddleware({}, res, () => {});
   assert.equal(res.headers['x-content-type-options'], 'nosniff');
   assert.equal(res.headers['x-frame-options'], 'DENY');
   assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
+  assert.match(res.headers['content-security-policy'], /script-src 'self' 'nonce-/);
   assert.equal(res.headers['referrer-policy'], 'strict-origin-when-cross-origin');
   assert.match(res.headers['strict-transport-security'], /max-age=31536000/);
 });
@@ -124,13 +126,22 @@ test('V3.4.2: CORS fails closed in production when ALLOWED_ORIGINS is missing', 
   });
 });
 
-// V7.2.1: Structured Security Audit Logging
-test('V7.2.1: logAuditEvent emits structured JSON logs with IP and event details', () => {
+// V7.2.1 & V8.2.1: Structured Security Audit Logging & Tenant Isolation
+test('V7.2.1: logAuditEvent redacts secrets, tokens and long prompt text', () => {
   const req = { ip: '1.2.3.4', method: 'POST', originalUrl: '/api/translate-stream', headers: { 'user-agent': 'TestAgent' } };
-  const entry = logAuditEvent('AUTH_FAILURE', { req, category: 'AUTH', reason: 'Invalid token' });
+  const entry = logAuditEvent('AUTH_FAILURE', { req, category: 'AUTH', token: 'sk-proj-12345', prompt: 'Secret chapter content '.repeat(20) });
   assert.equal(entry.event, 'AUTH_FAILURE');
   assert.equal(entry.ip, '1.2.3.4');
-  assert.equal(entry.details.reason, 'Invalid token');
+  assert.equal(entry.details.token, '[REDACTED]');
+  assert.equal(entry.details.prompt, '[REDACTED]');
+});
+
+test('V8.2.1: requireApiAuth attaches isolated tenantId to request context', () => {
+  withEnv({ NODE_ENV: 'production', API_TOKEN: 'secret-token' }, () => {
+    const req = { headers: { 'x-api-token': 'secret-token', 'x-tenant-id': 'tenant-acme-1' }, query: {}, body: {} };
+    requireApiAuth(req, responseMock(), () => {});
+    assert.equal(req.tenantId, 'tenant-acme-1');
+  });
 });
 
 // T5: scraped chapters and user notes are data, never instructions.
