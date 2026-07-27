@@ -169,12 +169,8 @@ def inpaint_speech_bubble(crop_region):
     kernel = np.ones((3, 3), np.uint8)
     mask_dilated = cv2.dilate(mask, kernel, iterations=1)
 
-    # 3. Phủ sạch 100% vết chữ cũ bằng thuật toán Inpaint TELEA
+    # 3. Phủ sạch 100% vết chữ cũ bằng thuật toán Inpaint TELEA (giữ nguyên nghệ thuật nét vẽ)
     inpainted = cv2.inpaint(crop_region, mask_dilated, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
-    
-    # Phủ màu phẳng tự nhiên cho bong bóng thoại nền sáng
-    if mean_val > 130:
-        inpainted[:] = (255, 255, 255)
 
     return inpainted, bg_color
 

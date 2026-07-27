@@ -1,34 +1,39 @@
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
-import OpenAI from 'openai';
-import axios from 'axios';
-import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { execFile, spawn } from 'child_process';
 import fs from 'fs';
 import rateLimit from 'express-rate-limit';
+
 import { loadGlossary, saveGlossary, renderForPrompt } from './services/glossary.js';
 import { updateGlossaryFromChapter } from './services/glossary-extract.js';
 import glossaryRoutes from './services/glossary-routes.js';
+import { streamAIWithRotation, callAIQuiet, getAIClient } from './services/ai.js';
+import { fetchTextFromUrl, fetchMultipleUrls } from './services/scraper.js';
+import { requireApiAuth, configureCors } from './services/auth.js';
+import { startAutoCleanupCron } from './services/cleanup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
+app.use(configureCors());
 app.use(express.json({ limit: '50mb' }));
-app.use('/api/glossary', glossaryRoutes);
+app.use('/api/glossary', requireApiAuth, glossaryRoutes);
 app.use(express.static(path.join(__dirname, 'public')));
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Quá nhiều request. Vui lòng chờ 1 phút.' } });
 app.use('/api/', limiter);
+app.use('/api/', requireApiAuth);
 
 // Đảm bảo thư mục uploads và public tồn tại
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 if (!fs.existsSync('public')) fs.mkdirSync('public');
+
+// Khởi động cron tự động dọn dẹp file tạm cũ (>1 giờ) định kỳ mỗi 15 phút
+startAutoCleanupCron();
 
 // Cấu hình thư mục nhận ảnh truyện tranh
 const upload = multer({
@@ -44,199 +49,8 @@ const upload = multer({
 process.on('uncaughtException', (err) => console.error("❌ Lỗi hệ thống:", err.message));
 process.on('unhandledRejection', (err) => console.error("❌ Lỗi Promise:", err.message));
 
-// Quản lý các API Key bị hết token/quota trong bộ nhớ (tự động bỏ qua Key hỏng)
-const exhaustedKeys = new Map();
 
-function markKeyExhausted(apiKey, cooldownMs = 3600 * 1000) {
-  if (apiKey) {
-    exhaustedKeys.set(apiKey, Date.now() + cooldownMs);
-    console.warn(`🔒 Đã tạm ẩn Key (${apiKey.substring(0, 12)}...) trong ${Math.round(cooldownMs / 1000)}s do 429 hết token/rate limit.`);
-  }
-}
-
-function isKeyExhausted(apiKey) {
-  if (!apiKey) return false;
-  const expireTime = exhaustedKeys.get(apiKey);
-  if (!expireTime) return false;
-  if (Date.now() > expireTime) {
-    exhaustedKeys.delete(apiKey);
-    return false;
-  }
-  return true;
-}
-
-// ===== BẢNG ĐĂNG KÝ MODEL =====
-const MODEL_REGISTRY = {
-  'deepseek/deepseek-v4-pro':   { pool: 'DEEPSEEK', provider: 'default' },
-  'deepseek/deepseek-v4-flash': { pool: 'DEEPSEEK', provider: 'default' },
-  'minimax/minimax-m3':         { pool: 'MINIMAX',  provider: 'default' },
-  'nvidia/nemotron':            { pool: 'OPENROUTER', provider: 'openrouter' },
-};
-
-// Thứ tự mượn key khi pool chính cạn sạch
-const POOL_FALLBACK = {
-  DEEPSEEK: ['DEEPSEEK', 'FLASH', 'MINIMAX'],
-  FLASH:    ['FLASH', 'DEEPSEEK', 'MINIMAX'],
-  MINIMAX:  ['MINIMAX', 'DEEPSEEK', 'FLASH'],
-};
-
-function resolveModel(modelName = '') {
-  if (MODEL_REGISTRY[modelName]) return MODEL_REGISTRY[modelName];
-  if (/openrouter|nvidia\/|nemotron/i.test(modelName)) return { pool: 'OPENROUTER', provider: 'openrouter' };
-  if (/^minimax\//i.test(modelName))  return { pool: 'MINIMAX',  provider: 'default' };
-  if (/^deepseek\//i.test(modelName)) return { pool: 'DEEPSEEK', provider: 'default' };
-  if (/flash/i.test(modelName))       return { pool: 'FLASH',    provider: 'default' };
-  return { pool: 'DEEPSEEK', provider: 'default' };
-}
-
-const readKeys = (name) =>
-  (process.env[name] || '').split(',').map(k => k.trim()).filter(Boolean);
-
-function buildKeyPool(modelName) {
-  const { pool } = resolveModel(modelName);
-  const order = POOL_FALLBACK[pool] || [pool];
-  const keys = order.flatMap(p => [...readKeys(`${p}_API_KEYS`), ...readKeys(`${p}_API_KEY`)]);
-  return [...new Set(keys)];
-}
-
-function getAIClient(modelName = '', keyIndex = 0) {
-  const { provider } = resolveModel(modelName);
-
-  if (provider === 'openrouter') {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    return {
-      client: new OpenAI({
-        baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-        apiKey,
-        defaultHeaders: { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'Novel Comic Translator' }
-      }),
-      apiKey
-    };
-  }
-
-  const all = buildKeyPool(modelName);
-  let usable = all.filter(k => !isKeyExhausted(k));
-  if (usable.length === 0 && all.length > 0) {
-    all.forEach(k => exhaustedKeys.delete(k));
-    usable = all;
-  }
-
-  const apiKey = usable[keyIndex % usable.length] || process.env.DEEPSEEK_API_KEY;
-  return { client: new OpenAI({ baseURL: process.env.AI_BASE_URL, apiKey }), apiKey };
-}
-
-function getKeyCount(modelName = '') {
-  if (resolveModel(modelName).provider === 'openrouter') return 1;
-  const all = buildKeyPool(modelName);
-  const usable = all.filter(k => !isKeyExhausted(k));
-  return (usable.length || all.length) || 1;
-}
-
-// Gọi AI lấy kết quả trọn gói, không đẩy ra client (dùng cho bước hậu kỳ / glossary)
-async function callAIQuiet(model, messages, options = {}) {
-  return streamAIWithRotation(model, messages, null, options);
-}
-
-// 🔄 HÀM GỌI AI & STREAM TỰ ĐỘNG XOAY VÒNG KEY VÀ MODEL DỰ PHÒNG
-// Khi 1 key bị rate limit / hết token → tự động thử key tiếp theo và nhớ để không lặp lại key hỏng
-async function streamAIWithRotation(modelName, messages, onChunk, options = {}) {
-  const temperature = options.temperature ?? 0.3;
-  const fallbackModel = options.fallbackModel || null;
-
-  const modelsToTry = [modelName];
-  if (fallbackModel && fallbackModel !== modelName) {
-    modelsToTry.push(fallbackModel);
-  }
-
-  let lastError = null;
-
-  for (const currentModel of modelsToTry) {
-    const totalKeys = getKeyCount(currentModel);
-
-    for (let attempt = 0; attempt < totalKeys; attempt++) {
-      let accumulatedText = "";
-      let currentApiKey = "";
-      try {
-        const { client, apiKey } = getAIClient(currentModel, attempt);
-        currentApiKey = apiKey;
-
-        const stream = await client.chat.completions.create({
-          model: currentModel,
-          messages,
-          temperature,
-          stream: true
-        });
-
-        for await (const chunk of stream) {
-          const content = chunk.choices[0]?.delta?.content || "";
-          if (content) {
-            accumulatedText += content;
-            if (onChunk) onChunk(content);
-          }
-        }
-
-        // Đã stream hoàn tất thành công!
-        if (accumulatedText.trim().length > 0) {
-          return accumulatedText;
-        }
-      } catch (err) {
-        lastError = err;
-        
-        // Tự động đánh dấu Key bị 429/quota để tạm ẩn khỏi danh sách
-        const isQuotaErr = err.status === 429 || err.status === 402 || 
-          err.message?.includes('quota') || err.message?.includes('exceeded') || 
-          err.message?.includes('Daily token quota') || err.message?.includes('balance');
-        
-        if (isQuotaErr && currentApiKey) {
-          markKeyExhausted(currentApiKey);
-        }
-
-        console.warn(`⚠️ Key (${currentApiKey ? currentApiKey.substring(0, 12) : ''}...) cho model ${currentModel} gặp sự cố (${err.message}). Tự động chuyển sang Key sống tiếp theo...`);
-        
-        if (attempt < totalKeys - 1 || modelsToTry.indexOf(currentModel) < modelsToTry.length - 1) {
-          continue;
-        }
-      }
-    }
-  }
-
-  throw lastError || new Error(`Tất cả Key và Model dự phòng cho ${modelName} đều thất bại.`);
-}
-
-async function fetchTextFromUrl(url) {
-  try {
-    const { data } = await axios.get(url.trim(), { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, timeout: 15000 });
-    const $ = cheerio.load(data);
-    
-    // Loại bỏ rác: script, style, quảng cáo, nav, footer, comment, popup, link chuyển chương
-    $('script, style, nav, header, footer, iframe, .ads, .advertisement, .sidebar, .comments, #comments, .nav-links, .chapter-nav, .next-chapter, .prev-chapter, .btn-next, .btn-prev, .pagination, .related-posts, .cat-links, .entry-meta').remove();
-
-    // Dùng .first() để CHỈ LẤY 1 KHUNG NỘI DUNG DUY NHẤT (tránh trang web có nhiều div trùng lặp cho desktop/mobile)
-    let container = $('#chapter-content').first();
-    if (!container.length) container = $('.entry-content').first();
-    if (!container.length) container = $('.chapter-c').first();
-    if (!container.length) container = $('article').first();
-    if (!container.length) container = $('main').first();
-    if (!container.length) container = $('body');
-
-    // Ưu tiên lấy từng thẻ <p> để lọc sạch khoảng trắng và nội dung thừa
-    let paragraphs = [];
-    container.find('p').each((_, el) => {
-      const pText = $(el).text().trim();
-      if (pText.length > 0 && !pText.toLowerCase().includes('next chapter') && !pText.toLowerCase().includes('previous chapter')) {
-        paragraphs.push(pText);
-      }
-    });
-
-    let text = paragraphs.length > 5 ? paragraphs.join('\n\n') : container.text().trim();
-    text = text.replace(/\n\s*\n/g, '\n\n').trim();
-
-    if (text.length < 200) throw new Error("Link lỗi hoặc không lấy được nội dung.");
-    return text;
-  } catch (err) { 
-    return ""; 
-  }
-}
+// Helper làm sạch đoạn trùng lặp trong bản dịch
 
 function cleanDuplicateTranslation(text) {
   if (!text || text.length < 500) return text;
@@ -286,14 +100,6 @@ function splitTextIntoChunks(text, maxChars = 7000) {
     chunks.push(currentChunk.trim());
   }
   return chunks;
-}
-
-async function fetchMultipleUrls(urlsText) {
-  const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u.length > 0);
-  const results = await Promise.all(urls.map(url => fetchTextFromUrl(url)));
-  // Tự động điều chỉnh độ dài mẫu dựa trên số lượng chương (hỗ trợ không giới hạn số lượng chap mẫu)
-  const sampleLimit = urls.length > 4 ? 2000 : (urls.length > 2 ? 3000 : 4500);
-  return results.map((t, idx) => `=== CHƯƠNG MẪU ${idx + 1} ===\n${t.substring(0, sampleLimit)}`).join("\n\n");
 }
 
 // ==========================================
