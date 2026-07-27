@@ -294,7 +294,7 @@ LỆNH BẮT BUỘC:
           source: enChunks[i],
           samplesEn: sampleEnCombined,
           samplesVi: sampleViCombined,
-          notes: userInstructions,
+          notes: [userInstructions, continuityBlock].filter(Boolean).join('\n\n'),
           glossary: glossaryBlock,
           styleGuide,
           chunkLabel: `chapter_chunk_${i + 1}`
@@ -302,6 +302,9 @@ LỆNH BẮT BUỘC:
         if (isSubsequentChunk) {
           stage2Messages[0].content += `\nThis is continuation chunk ${i + 1}/${enChunks.length}. Do not repeat chapter title or introduction. Continue smoothly.`;
         }
+
+        let titleChecked = !isSubsequentChunk;
+        let headerBuffer = "";
 
         const chunkText = await streamAIWithRotation(
           MODEL_TRANSLATE,
