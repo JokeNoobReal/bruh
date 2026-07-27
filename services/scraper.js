@@ -127,7 +127,32 @@ export async function fetchMultipleUrls(urlsText) {
     throw new Error("Không cào được nội dung từ bất kỳ URL mẫu nào.");
   }
 
-  // Tự động điều chỉnh độ dài mẫu dựa trên số lượng chương
-  const sampleLimit = urls.length > 4 ? 2000 : (urls.length > 2 ? 3000 : 4500);
-  return validResults.map((t, idx) => `=== CHƯƠNG MẪU ${idx + 1} ===\n${t.substring(0, sampleLimit)}`).join("\n\n");
+  return validResults.map((t, idx) => `=== CHƯƠNG MẪU ${idx + 1} ===\n${t}`).join("\n\n");
+}
+
+/**
+ * Cào các cặp mẫu EN <-> VI khớp theo chỉ số (Tạo mảng { en, vi } cho seedFromSamples)
+ */
+export async function fetchPairSamples(urlsEnText, urlsViText) {
+  const urlsEn = (urlsEnText || '').split('\n').map(u => u.trim()).filter(Boolean);
+  const urlsVi = (urlsViText || '').split('\n').map(u => u.trim()).filter(Boolean);
+  
+  const count = Math.min(urlsEn.length, urlsVi.length);
+  const pairs = [];
+
+  for (let i = 0; i < count; i++) {
+    try {
+      const [en, vi] = await Promise.all([
+        fetchTextFromUrl(urlsEn[i]),
+        fetchTextFromUrl(urlsVi[i])
+      ]);
+      if (en && vi) {
+        pairs.push({ en, vi });
+      }
+    } catch (e) {
+      console.warn(`⚠️ Lỗi cào cặp mẫu ${i + 1}: ${e.message}`);
+    }
+  }
+
+  return pairs;
 }
