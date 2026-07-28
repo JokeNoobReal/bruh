@@ -12,6 +12,76 @@ function toast(t) {
   }
 }
 
+// Cookie Helper (cho trình duyệt lưu cả Cookie lẫn localStorage)
+function setCookie(name, value, days = 365) {
+  const date = new Date();
+  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+  const expires = `; expires=${date.toUTCString()}`;
+  document.cookie = `${name}=${encodeURIComponent(value || '')}${expires}; path=/; SameSite=Lax`;
+}
+
+function getCookie(name) {
+  const nameEQ = `${name}=`;
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+  }
+  return null;
+}
+
+// Tự động lưu toàn bộ dữ liệu form khi nhập
+const FORM_FIELDS = [
+  'sampleEn', 'sampleVi', 'newUrl', 'notes',
+  'seriesName', 'chapterNumber', 'translateModel', 'reviewModel',
+  'comicUrl', 'comicNotes', 'sourceLang', 'glossarySearchId'
+];
+
+function autoSaveFormData() {
+  const config = {};
+  FORM_FIELDS.forEach(fieldId => {
+    const el = $('#' + fieldId);
+    if (el) {
+      const val = el.value;
+      localStorage.setItem('bruh_' + fieldId, val);
+      config[fieldId] = val;
+    }
+  });
+  setCookie('bruh_config', JSON.stringify(config));
+}
+
+function autoRestoreFormData() {
+  let cookieConfig = {};
+  try {
+    const rawCookie = getCookie('bruh_config');
+    if (rawCookie) cookieConfig = JSON.parse(rawCookie);
+  } catch (e) {}
+
+  FORM_FIELDS.forEach(fieldId => {
+    const el = $('#' + fieldId);
+    if (el) {
+      const savedVal = localStorage.getItem('bruh_' + fieldId) ?? cookieConfig[fieldId];
+      if (savedVal !== undefined && savedVal !== null) {
+        el.value = savedVal;
+      }
+    }
+  });
+}
+
+// Gắn sự kiện auto-save cho tất cả các trường
+window.addEventListener('DOMContentLoaded', () => {
+  autoRestoreFormData();
+
+  FORM_FIELDS.forEach(fieldId => {
+    const el = $('#' + fieldId);
+    if (el) {
+      el.addEventListener('input', autoSaveFormData);
+      el.addEventListener('change', autoSaveFormData);
+    }
+  });
+});
+
 // Chuyển Tab
 $$('.tab').forEach((tab) => {
   tab.onclick = () => {
@@ -28,28 +98,14 @@ $$('.tab').forEach((tab) => {
   };
 });
 
-// Lưu / Nạp Cấu Hình
+// Nút Lưu Cấu Hình Thủ Công
 const saveBtn = $('#saveBtn');
 if (saveBtn) {
   saveBtn.onclick = () => {
-    localStorage.setItem('bruhSampleEn', $('#sampleEn')?.value || '');
-    localStorage.setItem('bruhSampleVi', $('#sampleVi')?.value || '');
-    localStorage.setItem('bruhNewUrl', $('#newUrl')?.value || '');
-    localStorage.setItem('bruhNotes', $('#notes')?.value || '');
-    localStorage.setItem('bruhSeriesName', $('#seriesName')?.value || '');
-    localStorage.setItem('bruhChapterNumber', $('#chapterNumber')?.value || '');
-    toast('Đã lưu cấu hình cục bộ.');
+    autoSaveFormData();
+    toast('Đã lưu cấu hình tự động (Cookie & Storage).');
   };
 }
-
-window.addEventListener('DOMContentLoaded', () => {
-  if (localStorage.getItem('bruhSampleEn') && $('#sampleEn')) $('#sampleEn').value = localStorage.getItem('bruhSampleEn');
-  if (localStorage.getItem('bruhSampleVi') && $('#sampleVi')) $('#sampleVi').value = localStorage.getItem('bruhSampleVi');
-  if (localStorage.getItem('bruhNewUrl') && $('#newUrl')) $('#newUrl').value = localStorage.getItem('bruhNewUrl');
-  if (localStorage.getItem('bruhNotes') && $('#notes')) $('#notes').value = localStorage.getItem('bruhNotes');
-  if (localStorage.getItem('bruhSeriesName') && $('#seriesName')) $('#seriesName').value = localStorage.getItem('bruhSeriesName');
-  if (localStorage.getItem('bruhChapterNumber') && $('#chapterNumber')) $('#chapterNumber').value = localStorage.getItem('bruhChapterNumber');
-});
 
 // ==========================================
 // 1. KẾT NỐI SSE STREAMING DỊCH TRUYỆN CHỮ 5 GIAI ĐOẠN
@@ -59,6 +115,7 @@ let currentBoxContentEl = null;
 const startTextBtn = $('#startText');
 if (startTextBtn) {
   startTextBtn.onclick = async () => {
+    autoSaveFormData();
     const urlsSampleEn = $('#sampleEn').value.trim();
     const urlsSampleVi = $('#sampleVi').value.trim();
     const urlNewEn = $('#newUrl').value.trim();
@@ -192,6 +249,7 @@ if (comicInput) {
 const startComicBtn = $('#startComic');
 if (startComicBtn) {
   startComicBtn.onclick = async () => {
+    autoSaveFormData();
     const file = comicInput?.files[0];
     const comicUrl = $('#comicUrl')?.value.trim() || '';
     const sourceLang = $('#sourceLang')?.value || 'en';
