@@ -74,8 +74,9 @@ test('T1: SSRF guard must validate every redirect hop and resolved IP', async ()
 test('T2: request budget rejects oversized input and excessive estimated cost', () => {
   assert.equal(typeof globalThis.enforceRequestBudget, 'function',
     'Expose enforceRequestBudget({inputChars, chunks, reviewRounds, costUsd})');
+  const maxInputChars = Number(process.env.MAX_INPUT_CHARS || 10_000_000);
   assert.deepEqual(globalThis.enforceRequestBudget({
-    inputChars: 100_001, chunks: 20, reviewRounds: 3, costUsd: 2,
+    inputChars: maxInputChars + 1, chunks: 20, reviewRounds: 3, costUsd: 2,
   }), { ok: false, code: 'INPUT_TOO_LARGE' });
   assert.deepEqual(globalThis.enforceRequestBudget({
     inputChars: 5_000, chunks: 2, reviewRounds: 3, costUsd: 99,

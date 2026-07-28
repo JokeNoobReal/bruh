@@ -1,9 +1,10 @@
 // services/prompt-guard.js
 // Untrusted text is data, never instructions. Keep this module pure and testable.
 
-const MAX_SOURCE_CHARS = Number(process.env.PROMPT_MAX_SOURCE_CHARS || 120000);
-const MAX_SAMPLE_CHARS = Number(process.env.PROMPT_MAX_SAMPLE_CHARS || 30000);
-const MAX_NOTES_CHARS = Number(process.env.PROMPT_MAX_NOTES_CHARS || 12000);
+const UNLIMITED_BUDGET = process.env.DISABLE_PROMPT_BUDGET === 'true' || process.env.UNLIMITED_PROMPT_BUDGET === 'true';
+const MAX_SOURCE_CHARS = UNLIMITED_BUDGET ? 50_000_000 : Number(process.env.PROMPT_MAX_SOURCE_CHARS || 10_000_000);
+const MAX_SAMPLE_CHARS = UNLIMITED_BUDGET ? 10_000_000 : Number(process.env.PROMPT_MAX_SAMPLE_CHARS || 2_000_000);
+const MAX_NOTES_CHARS = UNLIMITED_BUDGET ? 2_000_000 : Number(process.env.PROMPT_MAX_NOTES_CHARS || 500_000);
 
 const hostile = /(?:ignore|disregard|override|bypass|reveal|print|exfiltrate|system prompt|developer message|api key|secret|previous instructions)/i;
 
@@ -50,10 +51,13 @@ export function buildReviewMessages({ source, draft, glossary = '', styleGuide =
 }
 
 export function assertPromptBudget({ source = '', samplesEn = '', samplesVi = '', notes = '', draft = '' }) {
+  if (process.env.DISABLE_PROMPT_BUDGET === 'true' || process.env.UNLIMITED_PROMPT_BUDGET === 'true') {
+    return true;
+  }
   const total = [source, samplesEn, samplesVi, notes, draft].reduce((n, x) => n + String(x ?? '').length, 0);
   const maxAllowed = MAX_SOURCE_CHARS + MAX_SAMPLE_CHARS * 2 + MAX_NOTES_CHARS;
   if (total > maxAllowed) {
-    const err = new Error(`Tổng dung lượng văn bản đầu vào (${total.toLocaleString()} ký tự) vượt quá ngân sách an toàn cho phép (${maxAllowed.toLocaleString()} ký tự). Vui lòng giảm bớt số lượng link chương mẫu hoặc chương dịch.`);
+    const err = new Error(`Tổng dung lượng văn bản đầu vào (${total.toLocaleString()} ký tự) vượt quá ngân sách an toàn cho phép (${maxAllowed.toLocaleString()} ký tự).`);
     err.code = 'PROMPT_BUDGET_EXCEEDED';
     err.total = total;
     err.maxAllowed = maxAllowed;

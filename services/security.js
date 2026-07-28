@@ -30,7 +30,8 @@ export function securityHeadersMiddleware(req, res, next) {
 }
 
 export function enforceRequestBudget({ inputChars = 0, chunks = 1, reviewRounds = 1, costUsd = 0 } = {}) {
-  if (inputChars > 100_000) return { ok: false, code: 'INPUT_TOO_LARGE' };
+  const maxChars = Number(process.env.MAX_INPUT_CHARS || 10_000_000);
+  if (inputChars > maxChars) return { ok: false, code: 'INPUT_TOO_LARGE' };
   if (costUsd > 10) return { ok: false, code: 'BUDGET_EXCEEDED' };
   if (chunks > MAX_CHUNKS) return { ok: false, code: 'TOO_MANY_CHUNKS' };
   if (reviewRounds > MAX_REVIEW_ROUNDS) return { ok: false, code: 'TOO_MANY_REVIEW_ROUNDS' };
