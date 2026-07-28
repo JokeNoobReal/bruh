@@ -51,9 +51,12 @@ export function buildReviewMessages({ source, draft, glossary = '', styleGuide =
 
 export function assertPromptBudget({ source = '', samplesEn = '', samplesVi = '', notes = '', draft = '' }) {
   const total = [source, samplesEn, samplesVi, notes, draft].reduce((n, x) => n + String(x ?? '').length, 0);
-  if (total > MAX_SOURCE_CHARS + MAX_SAMPLE_CHARS * 2 + MAX_NOTES_CHARS) {
-    const err = new Error('Prompt input exceeds configured safety budget');
+  const maxAllowed = MAX_SOURCE_CHARS + MAX_SAMPLE_CHARS * 2 + MAX_NOTES_CHARS;
+  if (total > maxAllowed) {
+    const err = new Error(`Tổng dung lượng văn bản đầu vào (${total.toLocaleString()} ký tự) vượt quá ngân sách an toàn cho phép (${maxAllowed.toLocaleString()} ký tự). Vui lòng giảm bớt số lượng link chương mẫu hoặc chương dịch.`);
     err.code = 'PROMPT_BUDGET_EXCEEDED';
+    err.total = total;
+    err.maxAllowed = maxAllowed;
     throw err;
   }
   return true;
