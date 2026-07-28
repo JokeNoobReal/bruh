@@ -6,7 +6,7 @@ import * as G from '../services/glossary.js';
 test('glossary exports required helpers', () => {
   for (const name of [
     'wordRegex', 'namesOf', 'appearsIn', 'selectRelevant',
-    'auditGlossary', 'enforceHard', 'checkLength', 'loadGlossary', 'saveGlossary'
+    'auditGlossary', 'enforceHard', 'checkLength', 'loadGlossary', 'saveGlossary', 'extractChapterNum'
   ]) {
     assert.equal(typeof G[name], 'function', `${name} must be exported`);
   }

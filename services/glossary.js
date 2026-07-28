@@ -47,6 +47,22 @@ export function deriveSeriesId(urlOrName) {
 }
 
 // ─────────────────────────────────────────────
+// Trích xuất số chương từ URL hoặc số nhập vào
+// ─────────────────────────────────────────────
+export function extractChapterNum(urlOrNumber) {
+  if (typeof urlOrNumber === 'number' && !isNaN(urlOrNumber)) {
+    return urlOrNumber;
+  }
+  const str = String(urlOrNumber || '');
+  const numMatch = str.match(/(?:chapter|chuong|\bch\b)\s*[-_]?\s*(\d+(?:\.\d+)?)/i);
+  if (numMatch) {
+    return parseFloat(numMatch[1]);
+  }
+  const fallbackNum = str.match(/(\d+(?:\.\d+)?)/);
+  return fallbackNum ? parseFloat(fallbackNum[1]) : 1;
+}
+
+// ─────────────────────────────────────────────
 // Đọc / ghi file Glossary nguyên tử (Atomic Write)
 // ─────────────────────────────────────────────
 function emptyGlossary(seriesId) {
